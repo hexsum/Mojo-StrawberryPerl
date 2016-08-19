@@ -1,0 +1,132 @@
+package Mojo::Weixin::Plugin::KnowledgeBase;
+our $PRIORITY = 2;
+use List::Util qw(first);
+use Storable qw(retrieve nstore);
+sub call{
+    my $client = shift;
+    my $data = shift;
+    $data->{mode} = 'fuzzy' if not defined $data->{mode};
+    my $file = $data->{file} || './KnowledgeBase.dat';
+    my $learn_command = defined $data->{learn_command}?quotemeta($data->{learn_command}):'learn|学习';
+    my $delete_command = defined $data->{delete_command}?quotemeta($data->{delete_command}):'delete|del|删除';
+    my $base = {};
+    $base = retrieve($file) if -e $file;
+    #$client->timer(120,sub{nstore $base,$file});
+    my $callback = sub{
+        my($client,$msg) = @_;
+        return if not $msg->allow_plugin;
+        return if $msg->class eq "send" and $msg->from ne "api" and $msg->from ne "irc" and $msg->source ne "outer";
+        return if $msg->type !~ /^friend_message|group_message$/;
+        if($msg->type eq 'group_message'){
+            return if $data->{is_need_at} and $msg->type eq "group_message" and !$msg->is_at;
+            return if ref $data->{ban_group}  eq "ARRAY" and first {$msg->group->displayname eq $_} @{$data->{ban_group}};
+            return if ref $data->{allow_group}  eq "ARRAY" and !first {$msg->group->displayname eq $_} @{$data->{allow_group}}
+        }
+        if($msg->content =~ /^(?:$learn_command)(\*?)
+                            \s+
+                            (?|"([^"]+)"|'([^']+)'|([^\s"']+))
+                            \s+
+                            (?|"([^"]+)"|'([^']+)'|([^\s"']+))
+                            /xs){
+            $msg->allow_plugin(0);
+            return if ref $data->{learn_operator} eq "ARRAY" and ! first {$_ eq $msg->sender->displayname} @{$data->{learn_operator}};
+            my($c,$q,$a) = ($1,$2,$3);
+            return unless defined $q;
+            return unless defined $a;
+            my $space = '';
+            if(defined $c and $c eq "*"){
+                $space = '__全局__';
+            }
+            else{
+                $space = $msg->type eq "friend_message"?"__我的好友__":$msg->group->displayname;
+            }
+            $q=~s/^\s+|\s+$//g;
+            $a=~s/^\s+|\s+$//g;
+            $a=~s/\\n/\n/g;
+            push @{ $base->{$space}{$q} }, $a;
+            nstore($base,$file);
+            $client->reply_message($msg,"知识库[ $q →  $a ]" . ($space eq '__全局__'?"*":"") . "添加成功",sub{$_[1]->from("bot")}); 
+
+        }   
+        elsif($msg->content =~ /^(?:$delete_command)(\*?)
+                            \s+
+                            (?|"([^"]+)"|'([^']+)'|([^\s"']+))
+                            /xs){
+            $msg->allow_plugin(0);
+            return if ref $data->{delete_operator} eq "ARRAY" and ! first {$_ eq $msg->sender->displayname} @{$data->{delete_operator}};
+            #return if $msg->sender->id ne $client->user->id;
+            my($c,$q) = ($1,$2);
+            $q=~s/^\s+|\s+$//g;
+            return unless defined $q;
+            my $space = '';
+            if(defined $c and $c eq "*"){
+                $space = '__全局__';
+            }
+            else{
+                $space = $msg->type eq "friend_message"?"__我的好友__":$msg->group->displayname;
+            }
+            delete $base->{$space}{$q}; 
+            nstore($base,$file);
+            $client->reply_message($msg,"知识库[ $q ]". ($space eq '__全局__'?"*":"") . "删除成功"),sub{$_[1]->from("bot")};
+        }
+        else{
+            my $content = $msg->content;
+            $content =~s/^[a-zA-Z0-9_]+: ?// if $msg->from eq "irc";
+            my $space = $msg->type eq "friend_message"?"__我的好友__":$msg->group->displayname;
+            #return unless exists $base->{$space}{$content};
+            if($data->{mode} eq 'regex'){
+                my @match_keyword;
+                for my $keyword (keys %{$base->{$space}}){
+                    next if not $content=~/$keyword/;
+                    push @match_keyword,$keyword;
+                }
+                if(@match_keyword == 0){
+                    $space = '__全局__';
+                    for my $keyword (keys %{$base->{$space}}){
+                        next if not $content=~/$keyword/;
+                        push @match_keyword,$keyword;
+                    }
+                }
+                return if @match_keyword == 0;
+                $msg->allow_plugin(0);
+                my $keyword = $match_keyword[int rand @match_keyword];
+                my $len = @{$base->{$space}{$keyword}};
+                my $reply = $base->{$space}{$keyword}->[int rand $len];
+                $reply .= "\n--匹配模式『$keyword』" . ($space eq '__全局__'?"*":"") if $data->{show_keyword};;
+                $client->reply_message($msg,$reply,sub{$_[1]->from("bot")});
+            }
+            elsif($data->{mode} eq 'fuzzy'){
+                my @match_keyword;
+                for my $keyword (keys %{$base->{$space}}){
+                    next if not $content=~/\Q$keyword\E/;
+                    push @match_keyword,$keyword;
+                }
+                if(@match_keyword == 0){
+                    $space = '__全局__';
+                    for my $keyword (keys %{$base->{$space}}){
+                        next if not $content=~/$keyword/;
+                        push @match_keyword,$keyword;
+                    }
+                }
+                return if @match_keyword == 0;
+                $msg->allow_plugin(0);
+                my $keyword = $match_keyword[int rand @match_keyword];
+                my $len = @{$base->{$space}{$keyword}};
+                my $reply = $base->{$space}{$keyword}->[int rand $len];
+                $reply .= "\n--匹配关键字『$keyword』" . ($space eq '__全局__'?"*":"") if $data->{show_keyword};;
+                $client->reply_message($msg,$reply,sub{$_[1]->from("bot")});
+            }
+            else{
+                $space = '__全局__' if not exists $base->{$space}{$content};
+                return if not exists $base->{$space}{$content};
+                $msg->allow_plugin(0);
+                my $len = @{$base->{$space}{$content}};
+                return if $len ==0;
+                $client->reply_message($msg,$base->{$space}{$content}->[int rand $len] . ($space eq '__全局__'?"*":""),sub{$_[1]->from("bot")}); 
+            }
+        }
+    };
+    $client->on(receive_message=>$callback);
+    $client->on(send_message=>$callback);
+}
+1;
