@@ -1,4 +1,4 @@
-﻿基于StrawberryPerl打包而成的包含Perl-5.24+cpanm+Mojo-Webqq+Mojo-Weixin的完整运行环境
+﻿基于StrawberryPerl打包而成的包含Perl-5.24+cpanm+Mojo-Webqq+Mojo-Weixin的完整Windows运行环境
 
 非常感谢网友 @那谁 的制作，在官方原本的基础上进行精简
 
