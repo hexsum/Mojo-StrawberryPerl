@@ -8,10 +8,10 @@
 3、如存在有效Cookie则无需扫码
 
 【发消息API】
-QQ发好友：http://127.0.0.1:666/openqq/send_message?qq=好友QQ号码&content=消息内容
-QQ发群：http://127.0.0.1:666/openqq/send_group_message?gnumber=群号码&content=消息内容
-微信发好友：http://127.0.0.1:888/openwx/send_friend_message?displayname=好友显示名称&content=消息内容
-微信发群：http://127.0.0.1:888/openwx/send_group_message?displayname=群名称&content=消息内容
+QQ发好友：http://127.0.0.1:5000/openqq/send_message?qq=好友QQ号码&content=消息内容
+QQ发群：http://127.0.0.1:5000/openqq/send_group_message?gnumber=群号码&content=消息内容
+微信发好友：http://127.0.0.1:3000/openwx/send_friend_message?displayname=好友显示名称&content=消息内容
+微信发群：http://127.0.0.1:3000/openwx/send_group_message?displayname=群名称&content=消息内容
 
 其他API详见：
 QQ：https://github.com/sjdy521/Mojo-Webqq/blob/master/API.md
