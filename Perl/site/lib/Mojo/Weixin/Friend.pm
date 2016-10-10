@@ -1,11 +1,9 @@
 package Mojo::Weixin::Friend;
 use Mojo::Weixin::Base 'Mojo::Weixin::Model::Base';
-use Mojo::Weixin::Const qw(%FACE_MAP_QQ %FACE_MAP_EMOJI);
 use List::Util qw(first);
 has name => '昵称未知';
 has [qw( 
     account
-    avatar
     province
     city
     sex
@@ -13,22 +11,22 @@ has [qw(
     signature
     display
     markname
+    _avatar
+    _verifyflag
 )];
 has 'category' => '好友'; #系统帐号|公众号|好友
+
+my %special_id = map {$_=>undef} ("filehelper","fmessage","newsapp","weibo", "qqmail", "tmessage", "qmessage", "qqsync", "floatbottle", "lbsapp", "shakeapp", "medianote", "qqfriend", "readerapp", "blogapp", "facebookapp", "masssendapp", "meishiapp", "feedsapp", "voip", "blogappweixin", "brandsessionholder", "weixinreminder", "wxid_novlwrv3lqwv11", "gh_22b87fa7cb3c", "officialaccounts", "notification_messages");
 
 sub new {
     my $self = shift;
     $self = $self->Mojo::Weixin::Base::new(@_);
-    if( my @code = $self->name=~/<span class="emoji emoji([a-zA-Z0-9]+)"><\/span>/g){
-        my %map = reverse %FACE_MAP_EMOJI;
-        for(@code){
-            my $name = $self->name;
-            $name=~s/<span class="emoji emoji$_"><\/span>/exists $map{$_}?"[$map{$_}]":"[未知表情]"/eg;
-            $self->name($name);
-        }
-    }
-    if(first { $self->id eq $_ } qw(fmessage weixin)){
+    $self->client->emoji_convert(\$self->{name},$self->client->emoji_to_text);
+    if(exists $special_id{$self->id}){
         $self->category("系统帐号");
+    }
+    elsif(defined $self->_verifyflag and $self->_verifyflag & 8){
+        $self->category("公众号");
     }
     $self;
 }
@@ -47,6 +45,7 @@ sub update{
     my $hash = shift;
     for(grep {substr($_,0,1) ne "_"} keys %$hash){
         if(exists $hash->{$_}){
+            $self->client->emoji_convert(\$hash->{$_},$self->client->emoji_to_text) if $_ eq "name";
             if(defined $hash->{$_} and defined $self->{$_}){
                 if($hash->{$_} ne $self->{$_}){
                     my $old_property = $self->{$_};

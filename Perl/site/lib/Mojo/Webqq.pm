@@ -1,7 +1,7 @@
 package Mojo::Webqq;
 use strict;
 use Carp ();
-$Mojo::Webqq::VERSION = "1.8.4";
+$Mojo::Webqq::VERSION = "1.8.6";
 use base qw(Mojo::Base);
 use Mojo::Webqq::Log;
 use Mojo::Webqq::Cache;
@@ -15,10 +15,12 @@ use base qw(Mojo::EventEmitter Mojo::Webqq::Base Mojo::Webqq::Model Mojo::Webqq:
 has qq                  => undef;
 has pwd                 => undef;
 has security            => 0;
-has state               => 'online';   #online|away|busy|silent|hidden|offline,
+has state               => 'online';   #online|away|busy|silent|hidden|offline|callme,
 has type                => 'smartqq';  #smartqq
 has login_type          => 'qrlogin';    #qrlogin|login
 has ua_debug            => 0;
+has ua_debug_req_body   => sub{$_[0]->ua_debug};
+has ua_debug_res_body   => sub{$_[0]->ua_debug};
 has log_level           => 'info';     #debug|info|warn|error|fatal
 has log_path            => undef;
 has log_encoding        => undef;      #utf8|gbk|...
@@ -87,6 +89,7 @@ has id_to_qq_cache => sub {Mojo::Webqq::Cache->new};
 
 has is_stop                 => 0;
 has is_ready                => 0;
+has is_polling              => 0;
 has ua_retry_times          => 5;
 has is_first_login          => -1;
 has is_set_qq               => 0; #是否在初始化时设置qq参数
@@ -97,6 +100,7 @@ has send_failure_count      => 0;
 has send_failure_count_max  => 5;
 has poll_failure_count      => 0;
 has poll_failure_count_max  => 3;
+has poll_connection_id      => undef;
 has message_queue           => sub { $_[0]->gen_message_queue };
 has ua                      => sub {
     require Mojo::UserAgent;

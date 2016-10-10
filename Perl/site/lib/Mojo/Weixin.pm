@@ -1,5 +1,5 @@
 package Mojo::Weixin;
-our $VERSION = '1.1.8';
+our $VERSION = '1.2.1';
 use Mojo::Weixin::Base 'Mojo::EventEmitter';
 use Mojo::IOLoop;
 use Mojo::Weixin::Log;
@@ -8,12 +8,16 @@ use POSIX ();
 use Carp ();
 use base qw(Mojo::Weixin::Util Mojo::Weixin::Model Mojo::Weixin::Client Mojo::Weixin::Plugin Mojo::Weixin::Request);
 
-has ua_debug            => 0;
+has http_debug          => 0;
+has ua_debug            => sub{$_[0]->http_debug};
+has ua_debug_req_body   => sub{$_[0]->ua_debug};
+has ua_debug_res_body   => sub{$_[0]->ua_debug};
 has log_level           => 'info';     #debug|info|warn|error|fatal
 has log_path            => undef;
 has log_encoding        => undef;      #utf8|gbk|...
 
 has account             => 'default';
+has start_time          => time;
 has tmpdir              => sub {File::Spec->tmpdir();};
 has media_dir           => sub {$_[0]->tmpdir};
 has cookie_path         => sub {File::Spec->catfile($_[0]->tmpdir,join('','mojo_weixin_cookie_',$_[0]->account || 'default','.dat'))};
@@ -22,6 +26,8 @@ has ioloop              => sub {Mojo::IOLoop->singleton};
 has keep_cookie         => 1;
 has fix_media_loop      => 1;
 has synccheck_interval  => 1;
+has emoji_to_text       => 1;
+has stop_with_mobile    => 0;
 
 has user    => sub {+{}};
 has friend  => sub {[]};
@@ -59,6 +65,8 @@ has is_stop                 => 0;
 has ua_retry_times          => 5;
 has is_first_login          => -1;
 has login_state             => 'init';
+has qrcode_count            => 0;
+has qrcode_count_max        => 10;
 has ua                      => sub {
     #local $ENV{MOJO_USERAGENT_DEBUG} = $_[0]->ua_debug;
     require Mojo::UserAgent;
@@ -82,17 +90,15 @@ has pass_ticket => '';
 has skey => '';
 has wxsid => '';
 has wxuin => '';
-has deviceid => sub{$_[0]->gen_deviceid()};
 has domain => 'wx.qq.com';
+has lang   => 'zh_CN';
 
 has _sync_running => 0;
 has _synccheck_running => 0;
 has _synccheck_error_count => 0;
-sub gen_deviceid {
-    my $self=shift;
-    my $n = "e";for(my $m = 0;15 > $m;$m++){$n .= POSIX::floor(10 * rand());} 
-    $n;
-}
+has _synccheck_connection_id => undef;
+
+sub deviceid { return "e" . substr(rand . ("0" x 15),2,15);}
 sub on {
     my $self = shift;
     my @return;
@@ -150,6 +156,14 @@ sub new {
     $self->on(error=>sub{
         my ($self, $err) = @_;
         $self->error(Carp::longmess($err));
+    });
+    $self->on(qrcode_expire=>sub{
+        my($self) = @_;
+        my $count = $self->qrcode_count;
+        $self->qrcode_count(++$count);
+        if($self->qrcode_count >= $self->qrcode_count_max){
+            $self->stop();
+        }
     });
     if($self->fix_media_loop){
         $self->on(receive_message=>sub{

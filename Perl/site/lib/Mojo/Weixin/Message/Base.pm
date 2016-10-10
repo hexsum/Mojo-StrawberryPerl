@@ -1,7 +1,7 @@
 package Mojo::Weixin::Message::Base;
 use Mojo::Weixin::Base -base;
 use Data::Dumper;
-use Mojo::Util qw(url_escape);
+use Mojo::Util qw();
 use Encode qw(decode_utf8);
 use Scalar::Util qw(blessed);
 
@@ -14,6 +14,7 @@ sub to_json_hash{
     for my $key ( ( (keys %$self),qw(sender receiver group ) ) ){
         next if substr($key,0,1) eq "_";
         if($key eq "sender"){
+            next if $self->type eq "group_notice";
             $json->{sender} = decode_utf8($self->sender->displayname);
             $json->{sender_account} = $self->sender->account;
         }
@@ -23,14 +24,14 @@ sub to_json_hash{
             $json->{receiver_account} = $self->receiver->account;
         }
         elsif($key eq "group"){
-            next if $self->type ne "group_message";
+            next if ($self->type ne "group_message" and $self->type ne "group_notice");
             $json->{group} = decode_utf8($self->group->displayname);
         }
         elsif($key eq "media_data"){
-            $json->{$key} = url_escape($self->{$key});
+            $json->{$key} = defined $self->{$key}?Mojo::Util::b64_encode($self->{$key}):"";
         }
         elsif(ref $self->{$key} eq ""){
-            $json->{$key} = decode_utf8($self->{$key});
+            $json->{$key} = decode_utf8($self->{$key} || "");
         }
     }
     return $json;
@@ -54,7 +55,7 @@ sub is_at{
             $displayname = $object->displayname;
         }
     }
-    return $self->content =~/\@\Q$displayname\E(|"\xe2\x80\x85")/;
+    return $self->content =~/\@\Q$displayname\E( |"\xe2\x80\x85"|)/;
 }
 
 sub remove_at{
@@ -76,7 +77,7 @@ sub remove_at{
         }
     }
     my $content = $self->content;
-    $content=~s/\@\Q$displayname\E(|"\xe2\x80\x85")//g;
+    $content=~s/\@\Q$displayname\E( |"\xe2\x80\x85"|)//g;
     $self->content($content);
     return $self;
 }

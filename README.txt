@@ -2,10 +2,6 @@
 
 非常感谢网友 @那谁 的制作，在官方原本的基础上进行精简
 
-如果github下载ZIP压缩包速度较慢，可以尝试从如下腾讯云存储地址下载RAR压缩包
-
-http://share-10066126.cos.myqcloud.com/Mojo-StrawberryPerl.rar
-
 【运行】
 1、运行批处理 start_mojo_webqq.bat 或者 start_mojo_weixin.bat 来启动程序
 2、扫码登陆，二维码图片会自动展示

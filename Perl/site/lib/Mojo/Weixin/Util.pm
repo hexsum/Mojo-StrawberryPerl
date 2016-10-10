@@ -1,11 +1,51 @@
 package Mojo::Weixin::Util;
 use Carp qw();
+use Mojo::Util ();
 use Mojo::JSON qw();
-use Encode qw(encode_utf8 encode decode);
 use Time::HiRes;
+use Mojo::Weixin::Const qw(%FACE_MAP_QQ %FACE_MAP_EMOJI);
+my %emoji_to_text_map = reverse %FACE_MAP_EMOJI;
+sub emoji_convert {
+    my $self = shift; 
+    my $content_ref =  shift;
+    return $self if not $$content_ref;
+    my $is_emoji_to_text = shift; $is_emoji_to_text = 1 if not defined $is_emoji_to_text;
+    if($is_emoji_to_text){
+        $$content_ref=~s/<span class="emoji emoji([a-zA-Z0-9]+)"><\/span>/exists $emoji_to_text_map{$1}?"[$emoji_to_text_map{$1}]":"[未知表情]"/ge;
+    }
+    else{
+        use bigint;
+        $$content_ref=~s/<span class="emoji emoji([a-zA-Z0-9]+)"><\/span>/$self->encode_utf8(chr(hex($1)))/ge;
+    }
+    return $self;
+}
 sub now {
     my $self = shift;
     return int Time::HiRes::time() * 1000;
+}
+sub encode{
+    my $self = shift;
+    return Mojo::Util::encode(@_);
+}
+sub decode{
+    my $self = shift;
+    return Mojo::Util::decode(@_);
+}
+sub encode_utf8{
+    my $self = shift;
+    return Mojo::Util::encode("utf8",@_);
+}
+sub url_escape{
+    my $self = shift;
+    return Mojo::Util::url_escape(@_);
+}
+sub b64_encode {
+    my $self = shift;
+    return Mojo::Util::b64_encode(@_);
+}
+sub slurp {
+    my $self = shift;
+    return Mojo::Util::slurp(@_);
 }
 sub decode_json{
     my $self = shift;

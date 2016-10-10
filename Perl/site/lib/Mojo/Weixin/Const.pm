@@ -1,13 +1,14 @@
 package Mojo::Weixin::Const;
 use Exporter 'import';
 our @EXPORT = qw(%KEY_MAP_USER %KEY_MAP_FRIEND %KEY_MAP_GROUP %KEY_MAP_MESSAGE %KEY_MAP_GROUP_MEMBER);
-our @EXPORT_OK = qw(%FACE_MAP_QQ %FACE_MAP_EMOJI %KEY_MAP_MEDIA_CODE);
+our @EXPORT_OK = qw(%FACE_MAP_QQ %FACE_MAP_EMOJI %KEY_MAP_MEDIA_CODE @SPECAL_ACCOUNT_ID);
 our %KEY_MAP_MEDIA_CODE = qw(
     file        6
-    video       62      
+    video       43      
+    microvideo  62
     image       3
     emoticon    47
-    voicce      34
+    voice       34
 );
 our %KEY_MAP_MESSAGE = qw(
     time        CreateTime
@@ -16,20 +17,21 @@ our %KEY_MAP_MESSAGE = qw(
 );
 our %KEY_MAP_USER = qw(
     id          UserName
+    uid         Uin
     name        NickName
     account     Alias
-    avatar      HeadImgUrl
     province    Province
     city        City
     signature   Signature
     sex         Sex
     display     DisplayName
     markname    RemarkName
+    _avatar      HeadImgUrl
 );
 our %KEY_MAP_FRIEND = qw(
     id          UserName
+    uid         Uin
     name        NickName
-    avatar      HeadImgUrl
     account     Alias
     province    Province
     city        City
@@ -37,17 +39,20 @@ our %KEY_MAP_FRIEND = qw(
     sex         Sex
     display     DisplayName
     markname    RemarkName
+    _avatar      HeadImgUrl
+    _verifyflag VerifyFlag
 
 );
 our %KEY_MAP_GROUP = qw(
     id      UserName
-    avatar  HeadImgUrl
+    uid     Uin
     name    NickName
+    _avatar  HeadImgUrl
 );
 our %KEY_MAP_GROUP_MEMBER = qw(
     id          UserName
+    uid         Uin
     name        NickName
-    avatar      HeadImgUrl
     account     Alias
     province    Province
     city        City
@@ -55,6 +60,7 @@ our %KEY_MAP_GROUP_MEMBER = qw(
     sex         Sex
     display     DisplayName
     markname    RemarkName
+    _avatar      HeadImgUrl
 );
 
 our %FACE_MAP_QQ = qw(
@@ -180,6 +186,7 @@ our %FACE_MAP_EMOJI = qw(
     亲吻     1f61a
     脸红     1f633
     露齿笑     1f63c
+    飞吻     1f63d
     满意     1f60c
     戏弄     1f61c
     吐舌     1f445
@@ -337,5 +344,7 @@ our %FACE_MAP_EMOJI = qw(
     版权     a9
     注册商标     ae
     商标     2122 
+    学校    1f3eb
 );
+
 1;

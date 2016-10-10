@@ -14,7 +14,7 @@ use base qw(Mojo::Weixin::Request);
 
 sub login{
     my $self = shift;
-    return if $self->login_state eq 'success';
+    return 1 if $self->login_state eq 'success';
     if($self->is_first_login == -1){
         $self->is_first_login(1);
     }
@@ -25,31 +25,43 @@ sub login{
     if($self->is_first_login){
         $self->load_cookie();
     }
-
-    my $ret = $self->_login();
-    if($self->login_state eq "success"){
-        $self->model_init();
-        $self->emit("login"=>($ret==2?1:0));
-    }
-    else{
-        $self->error("登录失败");
-        $self->stop();
+    while(1){
+        my $ret = $self->_login();
+        $self->clean_qrcode();
+        sleep 2;
+        if($ret and $self->login_state eq "success" and $self->model_init()){
+            $self->emit("login"=>($ret==2?1:0));
+            return 1;
+        }
+        else{
+            $self->logout();
+            $self->login_state("init");
+            $self->error("登录结果异常，再次尝试...");
+            next;
+        }
     }
 }
 sub relogin{
     my $self = shift;
     my $retcode = shift;
     $self->info("正在重新登录...\n");
+    if(defined $self->_synccheck_connection_id){
+        eval{
+            $self->ioloop->remove($self->_synccheck_connection_id);
+            $self->_synccheck_running(0);
+            $self->info("停止接收消息...");
+        };
+        $self->info("停止接收消息失败: $@") if $@;
+    }
     $self->logout($retcode);
     $self->login_state("relogin");
-    $self->ua->cookie_jar->empty;
+    #$self->clear_cookie();
 
     $self->sync_key(+{});
     $self->pass_ticket('');
     $self->skey('');
     $self->wxsid('');
     $self->wxuin('');
-    $self->deviceid($self->gen_deviceid());
 
     $self->user(+{});
     $self->friend([]);
@@ -57,11 +69,25 @@ sub relogin{
     $self->data(+{});
 
     $self->login();
+    $self->timer(2,sub{
+        $self->info("重新开始接收消息...");
+        $self->_synccheck();
+    });
+
+    $self->emit("relogin");
 }
 sub logout{
     my $self = shift;
     my $retcode = shift;
-    $self->_logout($retcode);
+    #my %type = qw(
+    #    1100    0
+    #    1101    1
+    #    1102    1
+    #    1205    1
+    #);
+    $self->info("客户端正在注销". (defined $retcode?"($retcode)":"") . "...");
+    $self->_logout(0);
+    $self->_logout(1);
 }
 sub steps {
     my $self = shift;
@@ -95,10 +121,16 @@ sub ready {
         my $json = shift;
         $self->_parse_sync_data($json);
     });
-    $self->info("开始接收消息...\n");
-    $self->_synccheck();
+    $self->on(run=>sub{
+        my $self = shift;
+        $self->timer(2,sub{
+            $self->info("开始接收消息...");
+            $self->_synccheck()}
+        );
+    });
     $self->is_ready(1);
     $self->emit("ready");
+    return $self;
 }
 sub run{
     my $self = shift;
@@ -185,15 +217,16 @@ sub mail{
         $self->error("发送邮件，请先安装模块 Mojo::SMTP::Client");
         return;
     }
-    my @new = (
+    my %new = (
         address => $opt{smtp},
         port    => $opt{port} || 25,
         autodie => $is_blocking,
     );
     for(qw(tls tls_ca tls_cert tls_key)){
-        push @new, ($_,$opt{$_}) if defined $opt{$_};
+        $new{$_} = $opt{$_} if defined $opt{$_};
     }
-    my $smtp = Mojo::SMTP::Client->new(@new);
+    $new{tls} = 1 if($new{port} == 465 and !defined $new{tls});
+    my $smtp = Mojo::SMTP::Client->new(%new);
     unless(defined $smtp){
         $self->error("Mojo::SMTP::Client客户端初始化失败");
         return;

@@ -1,0 +1,1325 @@
+=pod
+
+=encoding utf8
+
+=head1 NAME
+
+Mojo::Weixin - A Weixin Client Framework base on Mojolicious
+
+=head1 SYNOPSIS
+
+    use Mojo::Weixin;
+    my $client = Mojo::Weixin->new(
+        http_debug  => 0,       #是否打印详细的debug信息
+        log_level => "info",  #日志打印级别，debug|info|warn|error|fatal 
+    );
+
+    #客户端加载ShowMsg插件，用于打印发送和接收的消息到终端
+    $client->load("ShowMsg");
+
+    #ready事件触发时 表示客户端一切准备就绪：已经成功登录、已经加载完个人/好友/群信息等
+    #你的代码建议尽量写在 ready 事件中
+    $client->on(ready=>sub{
+        my $client = shift;
+
+        #设置接收消息事件的回调函数，在回调函数中对消息以相同内容进行回复
+        $client->on(receive_message=>sub{
+            my ($client,$msg)=@_;
+            $msg->reply($msg->content); #已以相同内容回复接收到的消息
+            #你也可以使用$msg->dump() 来打印消息结构
+        });
+
+        #你的其他代码写在此处
+
+    });
+
+    #客户端开始运行
+    $client->run();
+
+    #run相当于执行一个死循环，不会跳出循环之外
+    #所以run应该总是放在代码最后执行，并且不要在run之后再添加任何自己的代码了    
+
+=head1 DESCRIPTION
+
+通过该项目，你可以完成微信基本的登录、接收和发送消息，在此基础上你可以通过插件的形式实现更多附加功能，比如：
+
+群管理、聊天记录统计、消息报警、智能问答机器人、在群聊中执行 Perl 代码，查询 Perldoc 文档、消息转发、微信和IRC联通等
+
+此项目是L<Weixin::Client>模块的重构，基于L<Mojolicious>框架，具体更多良好特性，比如：
+
+基于L<Mojo::Base>更好的对象模型、基于L<Mojo::EventEmitter>灵活的事件管理机制、
+
+基于L<Mojo::UserAgent>统一的阻塞和非阻塞HTTP请求、基于L<Mojo::Log>轻量级的日志记录框架 等等
+
+推荐你在使用本模块的同时也更多的了解L<Mojolicious>
+
+=head1 源码导读
+
+    ├── Changes #更新记录
+    ├── demo    #存放演示程序
+    │   ├── echo-reply.pl     
+    │   └── openwx-client.pl
+    ├── doc     #模块文档
+    │   └── Weixin.pod
+    ├── lib
+    │   └── Mojo
+    │       ├── Weixin
+    │       │   ├── Base.pm       #所有对象基类
+    │       │   ├── Cache.pm      #缓存任意信息
+    │       │   ├── Client
+    │       │   │   ├── Cron.pm   #定时执行任务
+    │       │   │   └── Remote
+    │       │   │       ├── _get_qrcode_image.pm  #微信底层接口，获取登录二维码图片
+    │       │   │       ├── _get_qrcode_uuid.pm   #微信底层接口，获取登录二维码uuid
+    │       │   │       ├── _is_need_login.pm     #微信底层接口，判断是否需要扫描登录
+    │       │   │       ├── _login.pm             #微信底层接口，登录
+    │       │   │       ├── _logout.pm            #微信底层接口，注销
+    │       │   │       ├── _synccheck.pm         #微信底层接口，检查是否有消息
+    │       │   │       └── _sync.pm              #微信底层接口，接收消息
+    │       │   ├── Client.pm  #负责客户的登录、运行、退出等基本控制功能
+    │       │   ├── Const.pm   #保存常量
+    │       │   ├── Friend.pm  #好友对象
+    │       │   ├── Group     
+    │       │   │   └── Member.pm  #群成员对象
+    │       │   ├── Group.pm   #群对象
+    │       │   ├── Log.pm     #日志类，提供日志记录相关功能
+    │       │   ├── Message
+    │       │   │   ├── Base.pm    #消息基类
+    │       │   │   ├── Handle.pm  #接收消息、发送消息的处理
+    │       │   │   ├── Queue.pm   #消息队列
+    │       │   │   ├── Remote 
+    │       │   │   │   └── _send_text_message.pm  #微信底层接口，发送好友和群文本消息
+    │       │   │   └── SendStatus.pm  #发送状态对象
+    │       │   ├── Message.pm #消息对象
+    │       │   ├── Model
+    │       │   │   ├── Base.pm  #个人、好友、群对象基类
+    │       │   │   └── Remote
+    │       │   │       ├── _webwxbatchgetcontact.pm #微信底层接口，批量获取群组信息
+    │       │   │       ├── _webwxgetcontact.pm      #微信底层接口，获取通讯录信息
+    │       │   │       └── _webwxinit.pm            #微信底层接口，获取首屏近期会话信息
+    │       │   ├── Model.pm  #模型，负责更新、删除、搜索好友、群组等对象
+    │       │   ├── Plugin       #插件集合
+    │       │   │   ├── FuckDaShen.pm
+    │       │   │   ├── IRCShell.pm
+    │       │   │   ├── KnowledgeBase.pm
+    │       │   │   ├── Openwx.pm
+    │       │   │   ├── Perlcode.pm
+    │       │   │   ├── Perldoc.pm
+    │       │   │   ├── PostQRcode.pm
+    │       │   │   ├── ShowMsg.pm
+    │       │   │   ├── SmartReply.pm
+    │       │   │   └── Translation.pm
+    │       │   ├── Plugin.pm #插件类，提供基本的插件加载，执行框架
+    │       │   ├── Request.pm #HTTP请求类，提供基本的HTTP GET POST请求，支持阻塞和非阻塞
+    │       │   ├── Run.pm  #提供异步执行外部程序的功能
+    │       │   ├── Server.pm #产生HTTP服务器
+    │       │   ├── User.pm #登录帐号个人对象
+    │       │   └── Util.pm #使用函数集合
+    │       ├── Weixin.pm #模块主文件
+    │       └── Weixin.pod #模块文档，同doc/Weixin.pod相同
+    ├── Makefile.PL  #模块安装所需Makefile文本
+    ├── README.md    #README文档，markdown格式
+    ├── screenshot   #运行效果截图
+    │   └── IRCShell.jpg
+    └── t  #测试程序
+        ├── https.t
+        └── load_module.t
+
+=head1 对象和方法
+
+=head2 客户端对象
+
+=head3 客户端对象属性
+
+    $client->log_level  #日志记录等级 默认info
+    $client->log_path   #日志记录路径，默认undef，打印到STDERR
+    $client->version    #客户端版本
+
+    #获取客户端属性
+    $client->log_level  #返回结果为 "info"
+
+    #设置客户端属性
+    $client->log_level("debug");  #设置客户的log_level等级为 debug
+
+=head3 客户端对象方法
+
+=head4 new 初始化一个微信客户端对象
+
+    $client = Mojo::Weixin->new(http_debug=>0, log_level=>"info", );
+
+    #支持的参数：
+
+    account         #可选，默认值default, 每个客户端的标识，多账号登录时需要设置，用于区分不同客户端保存的cookie路径
+    http_debug      #设置该参数，打印调试信息
+    keep_cookie     #默认为1，0表示不保存登录cookie，1表示保存登录cookie方便下次直接恢复登录
+
+    log_level       #默认级别为info，可以设置debug|info|warn|error|fatal
+    log_path        #默认客户端输出内容打印到STDERR 设置该参数可以将客户端输出重定向到文件
+    log_encoding    #输出日志的编码，默认自动检测，如果出现乱码可以尝试手动设置一下输出编码
+                    #编码必须是 Encode 模块支持的格式，比如utf8 gbk等
+
+    tmpdir          #程序使用的临时目录，主要用于保存一些验证码、二维码等数据，默认为系统临时目录
+    cookie_path     #登录cookie的保存文件，默认为 tmpdir/mojo_weixin_cookie_default.dat（多账号运行时设置不同account）
+    pic_dir         #图片接收默认地址，默认为 tmpdir 参数所设置的目录
+
+    qrcode_path     #二维码保存路径，默认是 tmpdir 目录下固定文件名
+    emoji_to_text   #默认为1，是否把emoji表情字符转为 "[微笑]" 形式的文本
+                    #如果你的输出设备支持显示原生emoji表情字符，可以把该参数设置为0
+    
+    stop_with_mobile #设置为1则手机操作退出web微信时客户端也会停止运行，默认值为0，表示客户端不退出重新等待扫码
+                     #需要注意，由于手机操作产生的指令和其他情况下服务端产生的退出指令是一样的，无法进行区分
+                     #所以开启该选项可能也会导致其他服务端要求客户端重新扫码的情况下客户端停止运行
+
+    qrcode_count_max #每个二维码都有一个过期时间，过期后会重新下载一个二维码继续等待扫描
+                     #如果等待扫码次数超过 qrcode_count_max 客户端会停止运行，默认10次
+
+=head4 login 客户端登录
+
+=head4 relogin 客户端重新登录
+
+=head4 logout 客户端注销
+
+=head4 stop 客户端停止运行
+
+=head4 run 启动主事件循环
+
+=head4 on 注册事件
+
+基于Mojo::EventEmitter的事件注册方法，可支持同时设置多个事件回调
+
+    $client->on("event1"=>sub{...},"event2"=>sub{...},);
+
+参考下文客户端支持的事件
+
+=head4 timer 定时执行
+
+指定多少秒之后执行对应的回调函数
+
+    $client->timer(10,sub{ print "hello world\n" }); #10s后打印hello world
+
+=head4 interval
+
+设置每隔多少秒重复执行对应的回调函数
+
+    $client->interval(10,sub{ print "hello world\n" }); #每隔10s后打印hello world
+
+=head4 add_job 定时执行任务
+
+    #支持的时间格式为 HH:MM 或 HH:MM:SS
+    $client->add_job("定时提醒","07:00",sub{$client->send_message($friend,"起床啦");});
+
+=head4 spawn(%opt) 执行外部命令
+
+在单独的进程中执行代码或命令
+
+客户端采用的是单进程异步事件驱动模式，如果在代码中执行system/exec等来调用其他命令
+
+或者执行某些阻塞的代码，比如sleep等 均会导致客户端主进程被阻塞而影响正常接收和发送消息
+
+这种情况下，可以采用客户端提供的spawn方法，将阻塞的代码放置到单独的进程中执行，捕获进程的标准输出和标准错误
+
+在回调函数中获取到进程执行的结果
+
+该方法实际上参考L<Mojo::Run>模块 并在该模块的基础上做了进一步完善
+
+    #支持的参数：
+    is_blocking     #是否阻塞执行命令，默认0
+    max_forks       #产生的最大进程数
+    cmd             #要执行的命令或代码
+    param           #命令的参数
+    exec_timeout    #命令或代码的执行超时时间
+    stdout_cb       #命令或代码执行过程中 STDOUT 一旦有数据则会触发此回调
+    stderr_cb       #命令或代码执行过程中 STDERR 一旦有数据则会触发此回调
+    exit_cb         #命令或代码执行结束的回调
+
+    代码示例：
+    $client->spawn(
+        cmd => sub {print "hello world";return "ok"},
+        exec_timeout => 3,
+        exit_cb => sub{
+            my($pid,$hash) = @_;
+            #$pid 是执行程序的进程号
+            #$hash是一个执行结果的hash引用，结构如下：
+            #{
+            #    'cmd'                  => 'CODE',              #执行的命令或代码
+            #    'time_stopped'         => '1441011558.30559',  #进程停止时间
+            #    'time_started'         => '1441011557.30242',  #进程开始时间
+            #    'time_duration_total'  => '1.00345897674561',  #进程执行总时间
+            #    'time_duration_exec'   => '1.00317192077637',  #进程执行时长
+            #    'is_timeout'           => undef,               #是否是超时退出
+            #    'exit_status'          => 1,                   #进程退出返回值
+            #    'exit_core'            => 0,                   #是否有core
+            #    'exit_signal'          => 0,                   #进程退出信号
+            #    'param'                => undef,               #命令或代码执行参数
+            #    'stderr'               => '',                  #进程的标准错误输出结果
+            #    'stdout'               => 'hello world',       #进程的标准输出结果
+            #    'result'               => [                    #代码的返回值
+            #                                   'ok'
+            #                              ]
+            #}
+
+        },
+    );
+
+    $client->spawn(
+        cmd             => "ping www.qq.com", #或者写成 ['ping','www.qq.com']
+        exec_timeout    => 3,
+        stdout_cb       => sub{
+            my($pid,$chunk) = @_;
+            $client->print("从标准输出中实时收到数据:",$chunk,"\n");
+        },
+        stderr_cb       => sub {
+            my($pid,$chunk) = @_;
+            $client->print("从标准错误中实时收到数据:",$chunk,"\n");
+        },
+        exit_cb => sub{
+            my($pid,$res) = @_;
+            $client->print("从标准输出中接收的全部数据:",$res->{stdout},"\n");
+            $client->print("从标准错误中接收的全部数据:",$res->{stderr},"\n");
+        }
+    );
+
+=head4 mail(%opt,[$callback]) 非阻塞发送邮件
+
+该方法实际上是L<Mojo::SMTP::Client>的封装，使用该方法之前请确保你已经安装了L<Mojo::SMTP::Client>模块
+
+    发送邮件需要设置的参数：
+    smtp        #smtp服务器地址，例如smtp.163.com
+    port        #smtp服务器端口，默认25
+    tls         #0|1 是否使用tls，默认为 0
+    tls_ca      #tls证书路径
+    tls_cert    #tls公钥路径
+    tls_key     #tls密钥路径
+    user        #smtp帐号
+    pass        #smtp密码
+    from        #发送邮箱
+    to          #接收邮箱
+    cc          #抄送邮箱
+    subject     #主题
+    html        #邮件正文内容，html格式
+    text        #邮件正文内容，纯文本格式
+    charset     #主题，邮件正文的编码格式，默认UTF-8
+    data        #设置该选项表示使用MIME::Lite生成的发送数据
+
+    $client->mail(smtp=>smtp.163.com,user=>xxx,pass=>xxx,from=>xxx,to=>xxx,subject=>"邮件测试",text=>"hello world",sub{
+        my ($send_status,$err) = @_;
+        if($send_status){print "发送成功"}
+        else{print "发送失败"}
+    });
+
+    其实也支持阻塞发送
+    my ($send_status,$err) = $client->mail(...);
+
+=head4 http_get http阻塞或非阻塞http get请求
+
+该方法为L<Mojo::UserAgent>的get方法的封装，调用方式基本和Mojo::UserAgent->get相同，但也存在细微差别
+
+阻塞http请求：
+
+    #标量上下文  返回http请求内容，若请求失败，返回内容为undef
+    my $http_body = $client->http_get($url,$header);
+
+    #列表上下文，返回http请求内容以及$ua,$tx
+    my ($http_body,$ua,$tx) = $client->http_get($url,$header);
+
+    #可以在http header设置一些请求相关的选项，比如：
+    #json=>1 表示将响应的json数据进行json decode得到perl的hash引用
+    #retry_times=>3 表示请求失败自动重试次数，默认使用$client->ua_retry_times的值
+    my $json_decode_hash = $client->http_get($url,{json=>1,retry_times=>3,Host=>"www.qq.com"});
+
+    #http post请求
+    $client->http_post($url,$header,form=>$post_data);
+
+非阻塞http请求：
+
+    $client->http_get($url,$header,sub{
+        my($http_body,$ua,$tx) = @_;
+        #请求失败 $http_body 返回undef
+    });
+
+注意：由于采用事件驱动，因此，你应该始终选择使用非阻塞的http请求模式，如果采用阻塞的http请求，在http请求完成之前
+
+整个程序都是被阻塞的，无法做其他任何事（包括接收和发送消息等）
+
+=head4 http_post 阻塞或非阻塞http post请求
+
+和 http_get 方法类似，不再赘述
+
+=head4 search_friend() 搜索好友
+
+    #支持按任意好友对象属性进行组合搜索，标量上下文返回符合条件的第一个好友对象，列表上下文返回全部对象
+    my $friend = $client->search_friend(name=>xxx,id=>xxx,);
+    my @friends = $client->search_friend(city=>"北京");
+
+=head4 search_group()  搜索群组
+
+    #支持按任意群对象属性进行组合搜索，标量上下文返回符合条件的第一个好友对象，列表上下文返回全部对象
+    my $group = $client->search_group(name=>xxx);
+
+=head4 create_group()  创建群聊
+
+    #hash传参
+    my $group = $client->create_group({
+        friends     =>  [ $friend1, $friend2, ... ], 
+        displayname =>  "测试", #可选，群聊名称
+    });    
+
+    #数组引用传参
+    my $group = $client->create_group([ $friend1, $friend2, ... ], "测试",);
+
+    #列表传参
+    my $grouup = $client->create_group($friend1, $friend2, ...);
+
+=head4 send_message($friend|$group,$content,$callback) 发送文本消息
+
+    #给指定的好友对象发送好友消息
+    $client->send_message($friend,"hello world"); #给指定的好友发送好友消息
+    $friend->send("hello world");                 #直接利用好友对象的方法，更简洁
+
+    $client->send_message($group,"hello world");  #给指定的群对象发送群消息
+    $group->send("hello world");                  #直接利用群对象的方法，更简洁
+
+    #在回调中对原始即将发送的消息对象进行再次的修改
+    $client->send_message($friend,"hello world",sub{
+        my($client,$msg) = @_;
+        my $content = $msg->content;
+        $msg->content($content . "我是消息小尾巴");
+    });
+
+=head4 send_media($friend|$group,$media_path|$media_hash,$callback) 发送媒体文件
+    
+    #发送本地文件，指定本地文件路径
+    $client->send_media($friend|$group,"/tmp/test.jpg");
+    $client->send_media($friend|$group,"/tmp/test.txt");
+
+    #发送url指定的文件
+    $client->send_media($friend|$group,"http://www.example.com/test.jpg");
+
+    #默认情况下，程序依靠文件扩展名或者url响应中的content-type等信息来识别媒体的格式，可能会导致识别不准确而影响发送
+    #这种情况下你可以传递一个hash的结构，手动指定媒体的相关信息
+    $client->send_media($friend|$group,{
+        media_path => '/tmp/hello.txt', #媒体路径，可以是本地文件路径或者http协议的url
+        media_data => 'hello world',    #可选，用于直接发送内存数据，优先级高于 media_path，
+        media_mime => 'text/plain',     #可选，默认是 application/octet-stream，用于指定
+        media_mtime => 1457169652 ,     #时间戳，文件修改时间，随意
+        media_ext  => 'txt',            #文件扩展名
+        media_size => 1024,             #可选，数据大小，默认会自动计算
+        media_name => 'hello.txt',      #可选，媒体名称，默认是取文件名作为名称
+    });
+
+
+=head4 reply_message($msg,$content,[$callback]) 回复指定消息文本内容
+
+    #回复消息，如果是群消息，就回复给该群，如果是好友消息，就回复给该好友
+    $client->reply_message($msg,$content);
+
+=head4 reply_media_message($msg,$media,[$callback]) 回复指定消息图片内容
+
+    #回复消息，如果是群消息，就回复给该群，如果是好友消息，就回复给该好友
+    $client->reply_media_message($msg,'http://www.baidu.com/test.jpg');
+    $client->reply_media_message($msg,'/tmp/test.jpg');
+
+=head4 accept_friend_request($id,$displayname,$ticket) 同意好友验证申请
+
+    #参数说明参见 friend_request 事件
+    $client->on(friend_request=>sub{
+        my($client,$id,$displayname,$verify,$ticket) = @_;
+        $client->accept_friend_request($id,$displayname,$ticket);
+    });
+
+=head2 个人对象
+
+    属性：
+    id          #唯一标识，每次登录期间有效，多次登录会发生变化
+    name        #昵称
+    account       #帐号
+    province    #省份
+    city        #城市
+    sex         #性别
+    signature   #个性签名
+    displayname #显示名称，和name相同
+    markname    #备注名称
+
+    方法：
+    dump        #打印对象结构
+    get_avatar  #获取用户头像
+    
+    成功登录后，可以通过 $client->user 来获取到个人对象
+
+    $client->user->name;   #获取个人昵称
+    $client->user->dump(); 
+    $client->get_avatar(sub{
+        my($path,$data,$mime) = @_; #传递给回调参数的分别是头像文件路径，原始数据，Content-Type
+    });
+
+=head2 好友对象
+
+    属性：
+    id          #唯一标识，每次登录期间有效，多次登录会发生变化
+    name        #昵称
+    account     #帐号
+    province    #省份
+    city        #城市
+    sex         #性别
+    signature   #个性签名
+    displayname #显示名称，如果设置了备注名称就返回备注名称，否则返回昵称
+    markname    #备注名称
+
+    方法：
+    dump        #打印对象结构
+    send        #给该好友发送消息
+    send_media  #发送图片
+    set_markname #设置备注名称
+    get_avatar  #获取用户头像
+
+    my $friend = $client->search_friend(name=>"小灰");
+    $friend->dump();
+    $friend->send("hello world"); 
+    $friend->set_markname("测试");
+    $friend->get_avatar(sub{
+        my($path,$data,$mime) = @_; #传递给回调参数的分别是头像文件路径，原始数据，Content-Type
+    });
+
+
+=head2 群组对象
+
+    属性：
+    id           #唯一标识，每次登录期间有效，多次登录会发生变化
+    name         #群名称
+    displayname  #群显示名称
+
+    方法：
+    search_group_member  #搜索群成员
+    me                   #返回群成员中的自己对象
+    send                 #发送消息给该群
+    send_media           #发送图片
+    dump                 #打印群对象结构
+    members              #返回所有的群成员对象列表
+    invite_friend        #邀请好友入群
+    kick_group_member    #移除群成员
+    set_displayname      #设置群聊显示名称
+    get_avatar           #获取用户头像
+
+    my $group = $client->search_group(displayname=>"红包群");
+    $group->send("大家好");
+    print "我在群中的称呼是：" . $group->me->displayname;
+
+    $group->invite_friend($friend1,$friend2,...);
+    $group->kick_group_member($member);
+    $group->set_displayname("测试");
+    $group->get_avatar(sub{
+        my($path,$data,$mime) = @_; #传递给回调参数的分别是头像文件路径，原始数据，Content-Type
+    });
+
+=head2 群成员对象
+
+    属性:
+    id              #唯一标识，每次登录期间有效，多次登录会发生变化
+    name            #昵称
+    account         #微信号
+    province        #省份
+    city            #城市
+    sex             #性别
+    signature       #个性签名
+    displayname     #成员在群组中的显示名称
+    markname        #备注名称
+
+    方法:
+    dump            #打印对象结构
+    group           #返回群成员对应的群组对象
+    make_friend     #发送好友请求
+    get_avatar      #获取用户头像
+
+    my $group = $client->search_group(displayname=>"红包群");
+    my $group_member = $group->search_group_member(displayname=>"小灰");
+    $group_member->dump;
+    $group_member->group->displayname;
+    $group_member->make_friend("你好，加个好友吧");
+    $group_member->get_avatar(sub{
+        my($path,$data,$mime) = @_; #传递给回调参数的分别是头像文件路径，原始数据，Content-Type
+    });
+
+=head2 消息对象
+
+    属性：
+    id          #消息id
+    type        #消息类型 friend_message|group_message|group_notice 好友消息或群消息或者群提示消息
+    class       #消息类别 send|recv 发送消息或接收消息
+    time        #消息发送或接收的时间
+    ttl         #发送消息的ttl，默认是5，当ttl为0 会被消息队列丢弃
+    cb          #消息发送完成后的回调函数，会在消息发送完之后执行
+    content     #消息内容
+    format      #消息格式，包括 text|media|app 三类
+
+    sender_id   #群消息中发送对象的id
+    receiver_id #消息接收对象的id
+    group_id    #群消息的群对象id
+    
+    #媒体类消息专用属性
+    media_id    #媒体id
+    media_type  #媒体类型 image|voice|video|emoticon
+    media_code  #媒体类型代码
+    media_mime  #媒体文件的MIME，比如 image/jpg
+    media_name  #媒体文件名称
+    media_size  #媒体文件大小
+    media_data  #媒体文件原始二进制数据
+    media_mtime #媒体文件的修改时间
+    media_ext   #媒体文件的扩展名
+    media_path  #媒体文件的本地路径
+
+    #应用分享类消息专用属性
+    app_id      #应用id
+    app_title   #分享标题
+    app_url     #分享链接
+    app_name    #应用名称
+    app_desc    #分享描述
+
+    方法：
+    sender      #消息的发送者对象
+    receiver    #消息接收者对象
+    group       #消息对应的群组对象
+    reply       #回复该消息文本内容
+    reply_media #回复该消息图片内容
+
+    #当接收到消息时 会产生receive_message事件
+    #注册receive_message事件对应的回调函数
+    $client->on(receive_message=>sub{
+        my($client,$msg) =  @_; 
+        if($msg->type eq "friend_message"){#接收到好友消息
+            my $friend = $msg->sender; #获取到该好友对象
+            print "我的好友：" . $friend->displayname . "给我发了一个消息，消息的内容是：" . $msg->content;
+        }
+        elsif($msg->type eq "group_message"){#接收到群消息
+            my $group = $msg->group;    #获取到消息对应的群组对象
+            my $sender = $msg->sender;  #获取到发送该消息的群成员对象
+
+            print $sender->displayname . "在群：", $group->displayname . "中发了一条消息，消息的内容是：" . $msg->content;
+        }
+        elsif($msg->type eq "group_notice"){
+            my $group = $msg->group;    #获取到消息对应的群组对象
+            print "在群：", $group->displayname . "中收到了一条群提示消息，消息的内容是：" . $msg->content;
+        }
+    
+        $msg->reply("消息已收到"); #回复该消息(文本形式)
+        $msg->reply_media("http://www.baidu.com/test.jpg"); #回复该消息图片(url形式)
+        $msg->reply_media("/tmp/test.jpg"); #回复该消息图片(本地文件路径)
+    });
+
+=head1 事件
+
+=head2 receive_message 接收到消息
+
+    $client->on(receive_message=>sub{
+        my($client,$msg) = @_;  #传给回调的参数是接收到的消息对象
+        ...;
+    });
+
+=head2 receive_media 接收到图片等媒体消息
+
+    $client->on(receive_media=>sub{
+        my($client,$path,$data,$msg) = @_;
+        # $path 图片的本地路径
+        # $data 图片的原始二进制数据
+        # $msg  图片对应的消息对象
+        ...;
+    });
+
+=head2 send_message 消息发送完成
+
+    $client->on(send_message=>sub{
+        my($client,$msg,$status) = @_; #传给回调的参数是发送完毕的 消息对象 和 发送状态对象
+        if($status->is_success){
+            print "消息" . $msg->id . "发送成功\n";
+        }
+        else{
+            print "消息" . $msg->id . "发送失败，失败原因：" . $status->info . "\n";
+        }
+    });
+
+=head2 input_qrcode 需要扫描二维码
+
+    $client->on(input_qrcode=>sub{
+        my($client,$qrcode_path) = @_; #传给回调的参数是二维码图片的路径
+        ...;
+    });
+        
+=head2 login 客户端发生登录
+
+    $client->on(login=>sub{
+        my($client,$is_scann) = @_;
+        # $is_scann 值为1表示本次登录经过二维码扫描，好友、群组对象的id可能发生变化
+        #           值为0表示本次登录未经过二维码扫描，好友、群组对象的id一般不发生变化
+    });
+
+=head2 ready 客户端准备就绪
+
+    $client->on(input_qrcode=>sub{
+        my($client,) = @_;
+        ...;
+    });
+
+=head2 group_property_change 群组属性改变
+
+    $client->on(group_property_change=>sub{
+        my($client,$group,$property,$old_value,$new_value)=@_;
+    });
+
+=head2 group_member_property_change 群成员属性改变
+
+    $client->on(group_member_property_change=>sub{
+        my($client,$member,$property,$old_value,$new_value)=@_;
+    });
+
+=head2 friend_property_change 好友属性改变
+
+    $client->on(friend_property_change=>sub{
+        my($client,$friend,$property,$old_value,$new_value)=@_;
+    });
+
+=head2 user_property_change 用户属性改变
+
+    $client->on(user_property_change=>sub{
+        my($client,$user,$property,$old_value,$new_value)=@_;
+    });
+
+=head2 new_group_member 新增群成员
+
+    $client->on(new_group_member=>sub{my ($client,$member,$group)=@_});
+
+=head2 new_friend  新增好友
+
+    $client->on(new_friend=>sub{my ($client,$friend)=@_});
+
+=head2 new_group 新增群组
+
+    $client->on(new_group=>sub{my ($client,$group)=@_});
+
+=head2 lose_friend 失去好友
+
+    $client->on(lose_friend=>sub{my ($client,$friend)=@_});
+
+=head2 lose_group 退出群组
+
+    $client->on(lose_group=>sub{my ($client,$group)=@_});
+
+=head2 lose_group_member 群组成员退出
+
+    $client->on(lose_group_member=>sub{my ($client,$member,$group)=@_});
+
+=head2 friend_request 好友验证申请 
+
+    $client->on(friend_request=>sub{
+        my ($client,$id,$displayname,$verify,$ticket) = @_;
+        # $id           发送好友验证请求的用户id
+        # $displayname  发送好友验证请求的用户名称
+        # $verify       发送好友验证请求的验证内容
+        # $ticket       ticket在同意好友验证请求时会用到，参见 accept_friend_request 方法
+    });
+
+=head1 关于插件
+
+=head2 load
+
+加载一个或者多个插件，多个插件使用数组引用，支持的插件参数包括:
+
+    priority        #可选，设置插件优先级，默认是0，较高的优先级能够使得插件优先执行
+    auto_call       #可选，设置是否加载完成后自动执行，默认为1
+    call_on_load    #可选，加载完插件马上执行，默认为0
+    data            #可选，设置加载插件时可以携带的数据，将会在call的时候传递给插件本身
+
+    $client->load(["plugin1","plugin2"],data=>[1,2,3,]);
+    $client->load("plugin",priority=>0,auto_call=>1);
+
+加载插件时，可以通过auto_call设置是否自动执行（默认在run的时候会执行），priority可以设置插件执行的优先级
+
+数字越大，优先级越高，插件会被优先执行
+
+=head2 call
+
+手动执行一个插件、适合auto_call=>0的插件的手动执行模式，当auto_call=>1时，会自动执行call
+
+    $client->call("plugin",[可选参数]);
+
+客户端实现了一个简单的插件管理机制，插件是一个简单的call函数，包名默认是Mojo:Weixin::Plugin::
+
+比如，我编写一个简单的hello world插件，效果是对接收到的任意消息回复一个"hello world"
+
+编写一个包 Mojo:Weixin::Plugin::HelloWorld
+
+    package Mojo:Weixin::Plugin::HelloWorld;
+    our $PRIORITY = 10; #可省略，除了在load中使用priority设置优先级，也可以通过包变量设置
+    our $AUTO_CALL = 1; #可省略，通过包变量设置插件是否默认加载后立刻执行
+    sub call{
+        my $client = shift;
+        my $data   = shift; #可能包含的data数据
+        $client->on(receive_message=>sub{
+            my($client,$msg)=@_;
+            $client->reply_message($msg,"hello world");
+        });
+    }
+    1;
+
+客户端加载和执行插件的操作：
+
+    #如果你的插件并非Mojo::Weixin::Plugin::相对命名规则，则可以在名称前使用"+"表示插件绝对名称
+    $client->load("HelloWorld");
+    $client->run();
+
+当客户端运行时，插件将会被加载并自动执行，收到消息时会自动回复hello world
+
+注意：
+
+当多个消息处理类的插件对同一个消息进行处理时，往往存在冲突的情况
+
+比如一个插件对消息处理完并不希望其他插件再继续处理该消息（默认情况下，receive_message事件会广播给所有订阅该事件的回调）
+
+这种情况下，可以通过设置不同的插件优先级，使得事件被触发时，优先级较高的插件获得优先执行
+
+执行完成后，再通过设置$msg->allow_plugin(0) 来禁止其他插件继续处理该消息，每个消息都带有一个allow_plugin的属性
+
+这是一种建议性的插件协议，并非强制遵守
+
+除此之外，也可以采用插件的手动执行模式，自己根据需要来执行插件
+
+=head1 插件列表
+
+=head2 Mojo::Weixin::Plugin::ShowMsg
+
+打印消息到终端
+
+    $client->load("ShowMsg");
+
+=head2 Mojo::Weixin::Plugin::ImageStore
+
+按日期目录保存发送和接收的图片
+
+    my $client = Mojo::Weixin->new(media_dir=>"/home/test");
+    $client->load("ShowMsg");
+
+    保存的效果:
+    /home/test/20150505/20150505123456.jpg
+    /home/test/20150505/20150505124356.jpg
+
+=head2 Mojo::Weixin::Plugin::AutoVerify
+
+收到好友验证请求时自动批准同意
+
+    $client->load("AutoVerify");
+
+=head2 Mojo::Weixin::Plugin::IRCShell
+
+将微信协议转换成irc协议，启动一个本地的irc服务器，使用任意irc客户端（irc user设置为微信帐号）连接后即可以按照irc的方式使用微信
+
+需要依赖模块 L<Mojo::IRC::Server::Chinese>
+
+    $client->load("IRCShell",data=>{
+        listen=>[ {host=>"127.0.0.1",port=>6667},], #可选，IRC服务器监听的地址+端口，默认0.0.0.0:6667
+        load_friend => 1, #默认是0 是否初始为每个好友生成irc虚拟帐号并加入频道 #我的好友
+    });
+    #支持的参数包括：
+    listen              #监听的地址和端口，数组的形式来支持多个地址
+                        # listen=>[ {host=>"127.0.0.1",port=>6667}, {host=>"127.0.0.1",port=>6668}]
+                        # 表示监听127.0.0.1:6667和 127.0.0.1:6668两个端口
+    master_irc_user     #和qq匹配的irc user帐号，默认按照和qq号相同的user或者客户端ip是本机地址作为识别规则
+    load_friend         #0|1 默认是0 是否初始为每个好友生成irc虚拟帐号并加入频道 #我的好友
+    image_api           #兼容elimage图床api地址，将qq图片转为连接，方便在irc上查看图片，默认没有启用
+                        #推荐依云的elimage http://img.vim-cn.com/
+
+微信好友会默认加入到irc的 '#我的好友' 频道中
+
+每个微信群也会在irc上创建对应的频道，比如微信群[PERL学习交流]对应的irc频道为'#PERL学习交流'
+
+使用任意的irc客户端连接到服务器,你便可以在irc上完成和微信好友的聊天，群聊等
+
+本插件更适合想要在Linux环境下使用微信的irc爱好者
+
+=head2 Mojo::Weixin::Plugin::Perldoc
+
+实现通过微信消息查询perldoc文档，支持perldoc -f|-v xxx
+
+    $client->load("Perldoc");
+    #由于该插件处理完的消息不应该再由其他插件处理，因此插件优先级应该设置成比其他插件优先级更高，插件默认优先级是0
+
+=head2 Mojo::Weixin::Plugin::Perlcode
+
+通过微信消息执行Perl代码，仅支持在linux系统上使用
+
+    $client->load("Perlcode");
+    #由于该插件处理完的消息不应该再由其他插件处理，因此插件优先级应该设置成比其他插件优先级更高，插件默认优先级是0
+
+触发条件：消息以 >>> 开头，比如：
+
+    >>> print "hello world";
+
+=head2 Mojo::Weixin::Plugin::UploadQRcode
+
+将二维码图片上传至腾讯云对象存储，获取到公网可以访问的url地址
+
+    $client->load("UploadQRcode");
+
+=head2 Mojo::Weixin::Plugin::PostQRcode
+
+登录过程如果需要手机扫描二维码，会将二维码以邮件附件的形式发送到指定邮箱，再通过手机微信扫描二维码
+
+注意： 由于需要发送邮件附件，依赖模块 L<Mojo::SMTP::Client> L<MIME::Lite>，需要单独安装
+
+    $client->load("PostQRcode",data=>{
+        smtp    =>  'xxxx', #邮箱的smtp地址
+        port    =>  'xxxx', #smtp服务器端口，默认25
+        from    =>  'xxxx', #发件人
+        to      =>  'xxxx', #收件人
+        user    =>  'xxxx', #smtp登录帐号
+        pass    =>  'xxxx', #smtp登录密码
+        tls     =>  0,      #可选，是否使用SMTPS协议，默认为0                            
+                            #在没有设置的情况下，如果使用的端口为465，则该选项会自动被设置为1
+    });
+    ...;
+
+    收到的邮件内容如下：
+
+    主题：微信帐号 xxxx 扫描二维码
+    附件：weixin_qrcode_xxxx.png
+    正文：请使用手机微信扫描附件中的二维码
+
+=head2 Mojo::Weixin::Plugin::Beauty
+
+识别关键字发送美图，例如发送"看妹子"消息，就自动发送美女图片
+
+    #使用默认的配置
+    $client->load("Beauty"); 
+
+    #自定义触发关键字和关键字对应的图片库
+    $client->load("Beauty",data=>{
+        file => './Beauty.dat', #可选，数据库保存路径，默认当前目录
+        board=>[
+            {command=>"看妹子", url=>'http://huaban.com/boards/19570858/'},
+            {command=>"搞基"  , url=>'http://huaban.com/boards/28226262/'},
+            {command=>"看帅哥", url=>'http://huaban.com/boards/27865046/'},
+        ]
+    });
+
+=head2 Mojo::Webqq::Plugin::Riddle
+
+输入关键字进行猜谜，作者 limengyu1990 L<https://github.com/limengyu1990>
+
+    $client->load("Riddle");
+    
+    $client->load("Riddle",data=>{
+        command     => "猜谜",   #可选，触发关键字
+        apikey      => "xxxx",   #可选，参见 http://apistore.baidu.com/apiworks/servicedetail/440.html?qq-pf-to=pcqq.c2c
+        timeout     => 30, #等待答案的超时时间，超时后会自动公布答案
+    });
+
+=head2 Mojo::Weixin::Plugin::Translation
+
+多国语言翻译功能，自动检测输入输出语言，消息指令格式：
+
+    翻译 hello
+    翻译 你好
+    翻译 こんにちは
+
+=head2 Mojo::Weixin::Plugin::Weather
+
+输入关键字，比如"北京天气"，查询天气预报。 作者 autodataming L<https://github.com/autodataming>
+
+    $client->load("Weather");
+
+=head2 Mojo::Weixin::Plugin::XiaoiceReply
+
+利用微软小冰实现智能回复，需要登录的微信帐号先关注微软小冰公众号
+
+该智能回复是独占模式，即一段时间内只能够和某个好友或某个群进行智能对话
+
+    $client->load("XiaoiceReply");
+    $client->load("XiaoiceReply",data=>{
+        is_need_at  => 1,           #可选，是否需要艾特我来触发智能回复
+        comamnd_on  => "小冰启动",  #可选，启动智能回复的命令，在手机端发送给任何人/群该消息内容即可
+        comamnd_off => "小冰停止",  #可选，停止智能回复的命令，在手机端发送给任何人/群该消息内容即可
+    });
+
+=head2 Mojo::Weixin::Plugin::SmartReply
+
+实现机器人的智能回复，支持好友消息、群消息
+
+为避免对群内成员产生影响，群内需要使用 @帐号昵称 来触发
+
+    $client->load("SmartReply");
+
+=head2 Mojo::Weixin::Plugin::KnowledgeBase
+
+通过QQ消息自定义问答知识库
+
+    $client->load("KnowledgeBase");
+
+触发条件： 消息以如下格式发送可以设定问题和答案，如果问题或答案包含空格可以使用引号 比如：
+
+    learn 今天天气怎么样  天气很好
+    学习  "你吃了吗"      当然吃了
+    learn '哈哈 你真笨'   "就你聪明"
+    learn* "你吃了吗"      当然吃了 （指令结尾有*表示添加全局知识库，默认只添加到所在的群组或好友知识库中）
+
+    del   今天天气怎么样
+    删除  '哈哈 你真笨'
+    del*  今天天气怎么样  （删除全局知识库）
+
+其他更多参数设置
+
+    $client->load("KnowledgeBase",data=>{
+        allow_group => ["PERL学习交流"],  #可选，允许插件的群，可以是群名称或群号码
+        ban_group   => ["私人群1","私人群2"], #可选，禁用该插件的群，可以是群名称或群号码
+        file => './KnowledgeBase.dat', #数据库保存路径
+        learn_command  => 'learn',     #自定义学习指令关键字
+        delete_command =>'del',      #自定义删除指令关键字
+        learn_operator => ["张三","李四"], #允许学习权限的操作人qq号
+        delete_operator => ["王五"], #允许删除权限的操作人qq号
+        mode => 'fuzzy', # fuzzy|regex|exact 分别表示模糊|正则|精确, 默认模糊
+    });
+
+=head2 Mojo::Weixin::Plugin::KnowledgeBase2
+
+使用方法和KnowledgeBase基本完全一致，存在的差别：
+
+1）知识库采用文本文件形式，可编辑，格式如下：
+
+分组空间（群名称)  #  匹配关键字（或正则表达式） #  回复内容
+
+文件中存储的数据格式示例：
+
+    __全局__         #   你好                      # 很高兴认识
+    __我的好友__     #   多谢                      # 不客气
+    我的群组1        #   今天天气怎么样            # 没有雨\n不用带伞 （\n表示换行）
+    我的群组1        #   今天天气怎么样            # 不知道
+    我的群组1        #   今天天气怎么样            # 自己百度 （相同关键字可以设置多行的回复内容，随机选取）
+    我的群组2        #   ^在吗(\?|)$               # 在呀，啥事
+    我的群组2        #   大(神|婶)                 # 大神你妹啊
+    我的群组3        #   井号怎么打出来            # 我发给你：\# 不客气 （井号要转义）
+
+2）定时检查知识库变动，自动实时加载，插件中的check_time参数可以设置定时检测间隔
+
+    $client->load("KnowledgeBase2",data=>{
+        allow_group => ["PERL学习交流"],  #可选，允许插件的群，可以是群名称或群号码
+        ban_group   => ["私人群1","私人群2"], #可选，禁用该插件的群，可以是群名称或群号码
+        file => './KnowledgeBase2.txt', #数据库保存路径，纯文本形式，可以编辑
+        learn_command  => 'learn',     #可选，自定义学习指令关键字
+        delete_command =>'del',      #可选，自定义删除指令关键字
+        learn_operator => ["张三","李四"], #允许学习权限的操作人显示名称
+        delete_operator => ["王五"], #允许删除权限的操作人显示名称
+        mode => 'fuzzy', # fuzzy|regex|exact 分别表示模糊|正则|精确, 默认模糊
+        check_time => 10, #默认10秒检查一次文件变更
+        show_keyword => 1, #消息是否包含触发关键字信息，默认为0
+    });
+    
+=head2 Mojo::Weixin::Plugin::Openwx
+
+提供HTTP API接口，方便获取客户端帐号、好友、群信息，以及通过接口发送和接收好友消息、群消息、事件信息
+
+    #ata是一个HASH引用
+    $client->load("Openwx",data=>{
+        listen => [ {host=>"127.0.0.1",port=>3000}, ] , #监听的地址和端口，支持多个，默认监听0.0.0.0:3000
+        auth   => sub {my($param,$controller) = @_},    #可选，认证回调函数，用于进行请求鉴权
+        post_api => 'http://xxxx',                      #可选，你自定义的接收消息上报接口
+        post_event => 1,                                #可选，是否上报事件，为了向后兼容性，默认值为0
+    });
+
+    #若data中设置了auth函数引用，则表示api接口开启认证
+    #认证函数返回值为真，认证通过，函数返回值为假，认证失败，接口返回403
+
+    #认证回调函数的第一个参数是一个HASH引用，包含get或post提交的参数信息
+    #第二个参数是一个Mojolicious的controller对象，适合对Mojolicious比较熟悉的情况下，利用controller进行高级的认证控制
+
+    #auth函数示例：
+
+    #简单的时间戳过期防盗链
+    #http://127.0.0.1:3000/openwx/send_message?id=xxxx&content=xxxx&key=xxxx&exp=xxxx
+    sub {
+        my $param = shift;
+        my $secret = 'this is your secret key';
+        return 0 if time() >= $param->{exp}; #参数值的exp为过期时间，超过过期时间链接已失效
+        if($param->{key} eq md5_sum($secret . join "",@$param{qw(id gid did content exp)} )){
+            return 1; #secret和相关参数值拼接成一个字符串后计算md5 再和参数key的值进行比较
+        }
+        else{
+            return 0;
+        }
+    }
+
+    #利用controller允许指定的IP可以访问，更多关于controller的资料，可以参考 Mojolicious::Controller
+    sub{
+        my ($param,$controller) = @_;
+        if($controller->tx->remote_address eq "127.0.0.1"){
+            return 1;
+        }
+        return 0;
+    }
+
+    #接收消息上报接口示例：
+    $client->load("Openwx",data=>{
+        listen => [{host=>xxx,port=>xxx}],
+        post_api=> 'http://127.0.0.1:4000/post_api',
+        post_event => 1, 
+    });
+
+    #接收到消息后，插件会通过HTTP POST请求的方式将json格式的消息上报到http://127.0.0.1:4000/post_api
+
+    普通好友消息或群消息上报
+
+    connect to 127.0.0.1 port 4000
+    POST /post_api
+    Accept: */*
+    Content-Length: xxx
+    Content-Type: application/json
+
+    {   "receiver":"小灰",
+        "time":"1442542632",
+        "content":"测试一下",
+        "class":"recv",
+        "sender_id":"@2372835507",
+        "receiver_id":"@4072574066",
+        "group":"PERL学习交流",
+        "group_id":"@@2617047292",
+        "sender":"灰灰",
+        "id":"10856",
+        "type":"group_message",
+        "post_type": "receive_message"
+    }
+
+    群提示消息上报
+    
+    connect to 127.0.0.1 port 4000
+    POST /post_api
+    Accept: */*
+    Content-Length: xxx
+    Content-Type: application/json
+
+    {   "receiver":"小灰",
+        "time":"1442542632",
+        "content":"你邀请灰太狼加入了群聊",
+        "class":"recv",
+        "receiver_id":"@4072574066",
+        "group":"PERL学习交流",
+        "group_id":"@@2617047292",
+        "id":"10856",
+        "type":"group_notice",
+        "format": "text",
+        "post_type": "receive_message"
+    }
+    
+    发送消息上报（包括从手机或其他设备上发送的消息）
+
+    发送的消息会通过JSON格式数据POST到该接口
+
+    connect to 127.0.0.1 port 4000
+    POST /post_api
+    Accept: */*
+    Content-Length: xxx
+    Content-Type: application/json
+
+    {   "receiver":"小灰",
+        "time":"1442542632",
+        "content":"测试一下",
+        "class":"send",
+        "sender_id":"@2372835507",
+        "receiver_id":"@4072574066",
+        "group":"PERL学习交流",
+        "group_id":"@@2617047292",
+        "sender":"灰灰",
+        "id":"10856",
+        "type":"group_message",
+        "format": "text",
+        "post_type": "send_message"
+    }
+
+    图片消息上报
+
+    {   "receiver":"小灰",
+        "time":"1442542632",
+        "content":"[media](\/tmp\/mojo_weixin_media_Ja9l.jpg)",
+        "media_path": "\/tmp\/mojo_weixin_media_Ja9l.jpg",
+        "media_id": "2273934420223351581",
+        "media_mime":"image\/jpg",
+        "media_name": "mojo_weixin_media_Ja9l.jpg",
+        "media_size": "1234567",
+        "media_mtime": "1462763788",
+        "media_ext": "jpg",
+        "media_data": "%87%60M%B4A%E1%EB%A0%13%E4%C4%5C2%C4%0B%DFV%B7%0B...", #对图片原始二进制数据，使用url encode编码
+        "class":"recv",
+        "sender_id":"@2372835507",
+        "receiver_id":"@4072574066",
+        "group":"PERL学习交流",
+        "group_id":"@@2617047292",
+        "sender":"灰灰",
+        "id":"10856",
+        "type":"group_message",
+        "format": "media",
+        "post_type": "receive_message"
+    }
+
+    #支持好友消息、群消息、群提示消息 上报
+
+    一般情况下，post_api接口返回的响应内容可以是随意，会被忽略
+    post_api接口返回的数据类型如果是 text/json 或者 application/json，并且json格式形式如下：
+
+        {"reply":"xxxxx","code":0} #要回复消息，必须包含reply的属性，其他属性有无并不重要
+
+    则表示希望通过post_api响应的内容来直接回复该消息，post_api的返回结果比如
+
+    HTTP/1.1 200 OK
+    Connection: close
+    Content-Type: application/json;charset=UTF-8
+    Date: Mon, 29 Feb 2016 05:53:31 GMT
+    Content-Length: 27
+    Server: Mojolicious (Perl)
+
+    {"reply":"你好","code":0}
+
+    则会直接对上报的消息进行回复，回复的内容为 "你好"
+
+    如果想要对消息回复图片内容，可以使用 media 参数，举例:
+
+    {"media":"http://www.baidu.com/test.jpg","code":0}                          #使用url地址形式
+
+    {"media":"/tmp/test.jpg","code":0}                                          #使用本地文件地址形式
+
+    {"reply":"给你发个图片","media":"http://www.baidu.com/test.jpg","code":0}   #文本和图片同时发送
+
+    #事件上报示例
+    
+    当事件发生时，会把事件相关信息上报到指定的接口，当前支持上报的事件包括
+    
+    |  事件名称                    |事件说明    |上报参数列表
+    |------------------------------|:-----------|:-------------------------------|
+    |new_group                     |新加入群聊  | 对应群对象
+    |new_friend                    |新增好友    | 对应好友对象
+    |new_group_member              |新增群聊成员| 对应成员对象，对应的群对象
+    |lose_group                    |退出群聊    | 对应群对象
+    |lose_friend                   |删除好友    | 对应好友对象
+    |lose_group_member             |成员退出群聊| 对应成员对象，对应的群对象
+    |group_property_change         |群聊属性变化| 群对象，属性，原始值，更新值
+    |group_member_property_change  |成员属性变化| 成员对象，属性，原始值，更新值
+    |friend_property_change        |好友属性变化| 好友对象，属性，原始值，更新值
+    |user_property_change          |帐号属性变化| 账户对象，属性，原始值，更新值
+
+    connect to 127.0.0.1 port 4000
+    POST /post_api
+    Accept: */*
+    Content-Length: xxx
+    Content-Type: application/json
+
+    {
+        "post_type":"event",
+        "event":"new_friend",
+        "params":[
+            {
+                "account":"ms-xiaoice",
+                "name":"小冰",
+                "markname":"",
+                "sex":"0",
+                "city":"海淀",
+                "signature":"我是人工智能微软小冰，我回来了，吼吼~~",
+                "province":"北京",
+                "displayname":"小冰",
+                "id":"@75b9db5ae52c87361d1800eaaf307f4d"
+            }
+        ],
+
+    }
+
+    可以通过上报的json数组中的`post_type`来区分上报的数据数接收到的消息还是事件
+
+当前支持的信息获取和发送消息的API接口（均返回json格式数据）：
+
+    #信息获取
+    /openwx/get_user_info           #查询用户信息
+    /openwx/get_friend_info         #查询好友信息
+    /openwx/get_group_info          #查询群信息
+
+    #消息发送，均支持GET和POST
+
+    #好友消息接口 /openwx/send_friend_message
+
+    支持的参数：
+    id              #好友的id
+    account         #好友的微信帐号
+    displayname     #好友的显示名称（如果你设置了备注名称就是备注名称，否则就是好友的昵称）
+    markname        #好友的备注名称
+
+    media_path      #可选，媒体的路径，比如 /tmp/123.jpg, http://www.example.com/123.jpg（需要做urlencode）
+    media_mime      #可选，媒体的文件类型，比如image/jpeg, text/plain
+    media_ext       #可选，媒体可扩展名，比如 jpg,txt
+
+    #群消息接口  /openwx/send_group_message
+
+    支持的参数：
+    id              #群组的id
+    displayname     #群组的显示名称
+
+    media_path      #可选，媒体的路径，比如 /tmp/123.jpg, http://www.example.com/123.jpg（需要做urlencode）
+    media_mime      #可选，媒体的文件类型，比如image/jpeg, text/plain
+    media_ext       #可选，媒体可扩展名，比如 jpg,txt
+
+    #好友问答接口 /openwx/consult
+    
+    支持的参数：
+    id              #好友的id
+    account         #好友的微信帐号
+    displayname     #好友的显示名称（如果你设置了备注名称就是备注名称，否则就是好友的昵称）
+    markname        #好友的备注名称
+    timeout         #等待回复的时间，默认30秒
+
+    media_path      #必选，媒体的路径，比如 /tmp/123.jpg, http://www.example.com/123.jpg（需要做urlencode）
+    media_mime      #可选，媒体的文件类型，比如image/jpeg, text/plain
+    media_ext       #可选，媒体可扩展名，比如 jpg,txt
+
+    主要应用场景是把小冰(微信帐号ms-xiaoice)的智能回复封装成接口
+    GET /openwx/consult?account=ms-xiaoice&content=haha HTTP/1.1
+    User-Agent: curl/7.29.0
+    Host: 127.0.0.1:3000
+    Accept: */*
+
+    HTTP/1.1 200 OK
+    Content-Type: application/json;charset=UTF-8
+    Date: Tue, 01 Mar 2016 07:25:11 GMT
+    Content-Length: 94
+    Server: Mojolicious (Perl)
+
+    {"reply":"哈哈，有什么事情","status":"发送成功","msg_id":"2683625013724723712","code":0}
+
+    超时失败时的返回结果：
+
+    {"reply":null,"reply_status":"reply timeout","status":"发送成功","msg_id":1456817344504,"code":0}
+    
+
+调用示例
+
+    http://127.0.0.1:3000/openwx/get_user_info
+    http://127.0.0.1:3000/openwx/send_friend_message?id=xxx&content=hello
+    http://127.0.0.1:3000/openwx/send_friend_message?account=xxx&content=hello
+    http://127.0.0.1:3000/openwx/send_friend_message?markname=test_friend&content=hello
+    http://127.0.0.1:3000/openwx/send_group_message?displayname=test_group&content=hello
+    http://127.0.0.1:3000/openwx/send_group_message?id=xxx&content=%e4%bd%a0%e5%a5%bd (中文需要utf8编码并进行urlencode)
+    http://127.0.0.1:3000/openwx/consult?account=ms-xiaoice&content=haha
+
+    http://127.0.0.1:3000/openwx/send_friend_message?id=xxx&media_path=https%3a%2f%2fss0.bdstatic.com%2f5aV1bjqh_Q23odCf%2fstatic%2fsuperman%2fimg%2flogo%2fbd_logo1_31bdc765.png
+    http://127.0.0.1:3000/openwx/send_friend_message?id=xxx&media_path=%2ftmp%2fhello.jpg
+
+更多API接口说明参见github：L<https://github.com/sjdy521/Mojo-Weixin/blob/master/API.md>
+
+=head1 SEE ALSO
+
+L<Mojo::Webqq>
+
+L<https://github.com/sjdy521/Mojo-Weixin>
+
+=head1 AUTHOR
+
+sjdy521, E<lt>sjdy521@163.comE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2014 by sjdy521
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself, either Perl version 5.10.1 or,
+at your option, any later version of Perl 5 you may have available.
+
+=cut
