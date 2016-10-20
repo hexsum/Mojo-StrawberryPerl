@@ -6,7 +6,7 @@ sub Mojo::Weixin::_webwxinit{
     my $self = shift;
     my $api = "https://". $self->domain . "/cgi-bin/mmwebwx-bin/webwxinit";
     my @query_string = (
-        r           =>  sub{use integer;-1*~time}->(),
+        r           =>  sub{use integer;unpack 'i',~ pack 'l',$self->now() & 0xFFFFFFFF}->(),
     );
     push @query_string,(pass_ticket =>  url_escape($self->pass_ticket)) if $self->pass_ticket;
     my $post = {
@@ -55,7 +55,16 @@ sub Mojo::Weixin::_webwxinit{
             push @friends,$friend;
         }
     }
-
+    
+    my @id = $json->{ChatSet}?split /,/,$json->{ChatSet}:();
+    for(@id){
+        if($self->is_group($_)){
+            push @groups,{id=>$_}; 
+        }
+        else{
+            push @friends,{id=>$_};
+        }
+    }
     return [$user,\@friends,\@groups];
 }
 1
