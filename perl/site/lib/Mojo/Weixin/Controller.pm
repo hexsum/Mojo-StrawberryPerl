@@ -230,7 +230,11 @@ MOJO_WEIXIN_CLIENT_TEMPLATE
     if( $^O eq 'MSWin32'){#Windows
         my $process;
         no strict;
-        if(Win32::Process::Create($process,$Config{perlpath} || 'perl',"perl " . $self->template_path,0,CREATE_NEW_PROCESS_GROUP,".") ){
+        my $p = $self->decode("gbk",$Config{perlpath});
+        if($p=~/\p{Han}|\s+/){
+            $self->warn("perl路径包含空格或中文可能导致客户端创建失败: [" . $self->encode("utf8",$p) . "]");
+        }
+        if(Win32::Process::Create($process,$Config{perlpath},'perl ' . $self->template_path,0,CREATE_NEW_PROCESS_GROUP,".") ){
             $self->backend->{$param->{client}} = $param;
             $self->backend->{$param->{client}}{pid} = $process->GetProcessID();
             $self->backend->{$param->{client}}{port} = $backend_port;
@@ -238,7 +242,13 @@ MOJO_WEIXIN_CLIENT_TEMPLATE
             return {code=>0,status=>'success',%{ $self->backend->{$param->{client}} } };    
         }
         else{
-            $self->error(Win32::FormatMessage( Win32::GetLastError() ) );
+            $self->error(
+                "创建客户端失败: " . 
+                $self->encode("utf8",
+                    $self->decode("gbk",Win32::FormatMessage( Win32::GetLastError() ) || 'create client fail' ) 
+                ) 
+            );
+            #$self->error(Win32::FormatMessage( Win32::GetLastError() ) );
             return {code=>3,status=>'failure',};
         }
     }

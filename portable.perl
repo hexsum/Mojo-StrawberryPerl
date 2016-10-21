@@ -1,21 +1,4 @@
 ---
-CPAN:
-  build_dir: cpan/build
-  cpan_home: cpan
-  ftp: ''
-  histfile: cpan/histfile
-  keep_source_where: cpan/sources
-  make: c/bin/dmake.exe
-  make_install_make_command: c/bin/dmake.exe
-  makepl_arg: ''
-  patch: c/bin/patch.exe
-  prefs_dir: cpan/prefs
-minicpan:
-  local: minicpan
-  remote: http://cpan.strawberryperl.com/
-  force: 1
-  skip_perl: 1
-  no_conn_cache: 1
 HomeDir:
   my_home: data
   my_data: data
@@ -24,7 +7,6 @@ Config:
   archlibexp: perl/lib
   bin: perl/bin
   binexp: perl/bin
-  incpath: c/include
   installarchlib: perl/lib
   installbin: perl/bin
   installhtml1dir: ''
@@ -57,8 +39,8 @@ Config:
   installvendorscript: 'perl/bin'
   ld: g++.exe
   _libpthfix_part1: c/lib
-  _libpthfix_part2: c/x86_64-w64-mingw32/lib
-  _libpthfix_part3: c/lib/gcc/x86_64-w64-mingw32/4.9.2
+  _libpthfix_part2: c/i686-w64-mingw32/lib
+  _libpthfix_part3: c/lib/gcc/i686-w64-mingw32/4.9.2
   lddlflags: '-mdll -s -L"$archlib\CORE" -L"$_libpthfix_part1"'
   ldflags: '-s -L"$archlib\CORE" -L"$_libpthfix_part1"'
   ldflags_nolargefiles: '-s -L"$archlib\CORE" -L"$_libpthfix_part1"'
@@ -98,8 +80,6 @@ Config:
   sitescript: perl/site/bin
   sitescriptexp: perl/site/bin
   vendorscriptexp: perl/bin
-  usrinc: c/include
 Env:
   PATH:
-    - c/bin
     - perl/bin

@@ -1,5 +1,5 @@
 @echo off
-
+title Mojo-Weixin-Controller
 set drive=%~dp0
 set drivep=%drive%
 if #%drive:~-1%# == #\# set drivep=%drive:~0,-1%
@@ -18,8 +18,8 @@ set PERL_MB_OPT=
 if not #%1# == ## "%drivep%\perl\bin\perl.exe" %* & goto END
 
 echo ----------------------------------------------
-echo  Welcome to Strawberry Perl Portable Edition!
-echo  * URL - http://www.strawberryperl.com/
+echo  Welcome to Mojo-Strawberry Perl !
+echo  * URL - https://github.com/sjdy521/Mojo-StrawberryPerl
 echo  * see README.TXT for more info
 echo ----------------------------------------------
 perl -MConfig -e "printf("""Perl executable: %%s\nPerl version   : %%vd / $Config{archname}\n""", $^X, $^V)" 2>nul
