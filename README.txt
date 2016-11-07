@@ -1,10 +1,10 @@
-﻿基于StrawberryPerl打包而成的包含Perl-5.24+cpanm+Mojo-Webqq+Mojo-Weixin的完整Windows运行环境
+﻿﻿基于StrawberryPerl打包而成的包含Perl-5.24+cpanm+Mojo-Webqq+Mojo-Weixin的完整Windows运行环境
 
 非常感谢网友 @那谁 的制作，在官方原本的基础上进行精简
 
 如果github下载ZIP压缩包速度较慢，可以尝试从如下腾讯云存储地址下载RAR压缩包
 
-http://share-10066126.cos.myqcloud.com/Mojo-StrawberryPerl-20161021.rar
+http://share-10066126.cos.myqcloud.com/Mojo-StrawberryPerl-20161107.rar
 
 【运行】
 1、运行批处理 start_mojo_webqq.bat/start_mojo_weixin.bat/start_mojo_weixin_controller.bat 来启动相应程序
