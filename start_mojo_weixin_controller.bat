@@ -26,5 +26,5 @@ perl -MConfig -e "printf("""Perl executable: %%s\nPerl version   : %%vd / $Confi
 if ERRORLEVEL==1 echo.&echo FATAL ERROR: 'perl' does not work; check if your strawberry pack is complete!
 echo.
 perl mojo_weixin_controller.pl
-cmd \K
+pause
 :END

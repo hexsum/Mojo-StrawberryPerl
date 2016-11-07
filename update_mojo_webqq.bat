@@ -26,8 +26,7 @@ perl -MConfig -e "printf("""Perl executable: %%s\nPerl version   : %%vd / $Confi
 if ERRORLEVEL==1 echo.&echo FATAL ERROR: 'perl' does not work; check if your strawberry pack is complete!
 echo.
 
-cpanm --mirror http://mirrors.163.com/cpan --mirror-only Mojo::Webqq && pause
-cmd /K
+cpanm --mirror http://mirrors.163.com/cpan --mirror-only Mojo::Webqq & pause
 :END
 
 
