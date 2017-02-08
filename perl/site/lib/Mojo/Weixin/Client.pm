@@ -22,9 +22,9 @@ sub login{
         $self->is_first_login(0);
     }
 
-    if($self->is_first_login){
-        $self->load_cookie();
-    }
+    #if($self->is_first_login){
+    #    #$self->load_cookie();#转移到new的时候就调用，这里不再需要
+    #}
     while(1){
         my $ret = $self->_login();
         $self->clean_qrcode();
@@ -57,7 +57,8 @@ sub relogin{
     $self->login_state("relogin");
     #$self->clear_cookie();
 
-    $self->sync_key(+{});
+    $self->sync_key(+{LIST=>[]});
+    $self->synccheck_key(undef);
     $self->pass_ticket('');
     $self->skey('');
     $self->wxsid('');
@@ -73,7 +74,6 @@ sub relogin{
         $self->info("重新开始接收消息...");
         $self->_synccheck();
     });
-
     $self->emit("relogin");
 }
 sub logout{
@@ -99,6 +99,7 @@ sub steps {
 }
 sub ready {
     my $self = shift;
+    $self->state('loading');
     #加载插件
     my $plugins = $self->plugins;
     for(
@@ -112,19 +113,26 @@ sub ready {
     #接收消息
     $self->on(synccheck_over=>sub{ 
         my $self = shift;
-        my($retcode,$selector) = @_;
+        $self->state('running');
+        my($retcode,$selector,$status) = @_;
+        if(not $status){#检查消息异常时，强制把检查消息(synccheck)间隔设置的更久，直到获取消息(sync)正常为止
+            $self->debug("检查消息结果异常");
+            $self->_synccheck_interval($self->synccheck_interval+$self->synccheck_delay);
+        }
         $self->_parse_synccheck_data($retcode,$selector);
-        $self->timer($self->synccheck_interval,sub{$self->_synccheck()});
+        $self->timer($self->_synccheck_interval, sub{$self->_synccheck()});
     });
     $self->on(sync_over=>sub{
         my $self = shift;
-        my $json = shift;
+        my ($json,$status) = @_;
+        $self->_synccheck_interval($status?$self->synccheck_interval:$self->synccheck_interval+$self->synccheck_delay);
         $self->_parse_sync_data($json);
     });
     $self->on(run=>sub{
         my $self = shift;
         $self->timer(2,sub{
             $self->info("开始接收消息...");
+            $self->state('running');
             $self->_synccheck()}
         );
     });
@@ -163,15 +171,17 @@ sub interval{
 sub exit{
     my $self = shift;
     my $code = shift;
-    $self->info("客户端已退出");
+    $self->state('stop');
     $self->emit("stop");
+    $self->info("客户端已退出");
     CORE::exit(defined $code?$code+0:0);
 }
 sub stop{
     my $self = shift;
     $self->is_stop(1);
-    $self->info("客户端停止运行");
+    $self->state('stop');
     $self->emit("stop");
+    $self->info("客户端停止运行");
     CORE::exit();
 }
 
@@ -299,6 +309,11 @@ sub check_pid {
         else{
             my $pid = $self->slurp($self->pid_path);
             if( $pid=~/^\d+$/ and kill(0, $pid) ){
+                # my $p;
+                #if($^O eq 'MSWin32' and Win32::Process::Open($p,$pid,0)){
+                #    $self->warn("检测到该账号有其他运行中的客户端(pid:$pid), 请先将其关闭");
+                #    $self->stop(); 
+                #}
                 $self->warn("检测到该账号有其他运行中的客户端(pid:$pid), 请先将其关闭");
                 $self->stop();
             }
@@ -318,5 +333,55 @@ sub clean_pid {
     return if not -f $self->pid_path;
     $self->info("清除残留的pid文件");
     unlink $self->pid_path or $self->warn("删除pid文件[ " . $self->pid_path . " ]失败: $!");
+}
+sub save_state{
+    my $self = shift;
+    my @attr = qw( 
+        account 
+        version 
+        start_time
+        http_debug 
+        log_encoding 
+        log_path 
+        log_level 
+        log_console
+        disable_color
+        download_media
+        tmpdir
+        media_dir
+        cookie_path
+        qrcode_path
+        pid_path
+        state_path
+        keep_cookie
+        fix_media_loop
+        synccheck_interval
+        emoji_to_text
+        stop_with_mobile
+        ua_retry_times
+        qrcode_count_max
+        state 
+    );
+    # pid
+    # os
+    eval{
+        my $json = {plugin => []};
+        for my $attr (@attr){
+            $json->{$attr} = $self->$attr;
+        }
+        $json->{pid} = $$;
+        $json->{os}  = $^O;
+        for my $p (keys %{ $self->plugins }){
+            push @{ $json->{plugin} } , { name=>$self->plugins->{$p}{name},priority=>$self->plugins->{$p}{priority},auto_call=>$self->plugins->{$p}{auto_call},call_on_load=>$self->plugins->{$p}{call_on_load} } ;
+        }
+        $self->spurt($self->to_json($json),$self->state_path);
+    };
+    $self->warn("客户端状态信息保存失败：$@") if $@;
+}
+
+sub is_load_plugin {
+    my $self = shift;
+    my $plugin = shift;
+    return exists $self->plugins->{ substr($plugin,0,1) eq '+'?$plugin:"Mojo::Weixin::Plugin::$plugin" };
 }
 1;

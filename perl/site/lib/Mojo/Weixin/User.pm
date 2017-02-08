@@ -7,6 +7,7 @@ has [qw(
     city
     sex
     id
+    uid
     signature
     display
     markname
@@ -17,6 +18,9 @@ sub new {
     my $self = shift;
     $self = $self->Mojo::Weixin::Base::new(@_);
     $self->client->emoji_convert(\$self->{name},$self->client->emoji_to_text);
+    $self->client->emoji_convert(\$self->{display},$self->client->emoji_to_text);
+    $self->client->emoji_convert(\$self->{markname},$self->client->emoji_to_text);
+    $self->uid("") if not $self->uid;
     $self;
 }
 sub get_avatar{
@@ -35,6 +39,8 @@ sub update{
     for(grep {substr($_,0,1) ne "_"} keys %$self){
         if(exists $hash->{$_}){
             $self->client->emoji_convert(\$hash->{$_},$self->client->emoji_to_text) if $_ eq "name";
+            $self->client->emoji_convert(\$hash->{$_},$self->client->emoji_to_text) if $_ eq "display";
+            $self->client->emoji_convert(\$hash->{$_},$self->client->emoji_to_text) if $_ eq "markname";
             if(defined $hash->{$_} and defined $self->{$_}){
                 if($hash->{$_} ne $self->{$_}){
                     my $old_property = $self->{$_};

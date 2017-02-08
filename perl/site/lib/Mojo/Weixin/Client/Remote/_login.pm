@@ -11,9 +11,9 @@ sub Mojo::Weixin::_login {
             return 1;
         }
     }
-    else{
-        $self->clear_cookie();
-    }
+    #else{
+    #    $self->clear_cookie();
+    #}
     my $qrcode_uuid = $self->_get_qrcode_uuid(); 
     if(not defined $qrcode_uuid){
         $self->info("无法获取到登录二维码，登录失败");
@@ -25,6 +25,7 @@ sub Mojo::Weixin::_login {
     }
     my $i=1;
     $self->info("等待手机微信扫描二维码...");
+    $self->state('scaning');
     while(1){
         my @query_string = (
             loginicon => 'true',
@@ -51,6 +52,7 @@ sub Mojo::Weixin::_login {
         }
         elsif($data{code} == 201){
             $self->info("手机微信扫码成功，请在手机微信上点击 [登录] 按钮...");
+            $self->state('confirming');
             $show_tip = 0;
             next;
 

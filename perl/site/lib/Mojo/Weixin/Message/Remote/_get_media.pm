@@ -1,13 +1,13 @@
 use strict;
 use File::Temp qw/:seekable/;
 use Mojo::Util ();
-use File::Basename qw(basename);
+use File::Basename ();
 sub Mojo::Weixin::_get_media {
     my $self = shift;
     my $msg = shift;
     my $callback = shift;
 
-    my $media_id = $msg->media_id; 
+    my $media_id = (split ":",$msg->media_id)[0]; 
     my $api;
     my @query_string;
     my $headers = {};
@@ -67,7 +67,7 @@ sub Mojo::Weixin::_get_media {
 
         if($msg->media_size == 0){
             $msg->media_path("non-exist-path") if $msg->media_size == 0;
-            $msg->media_name(basename($msg->media_path));
+            $msg->media_name(File::Basename::basename($msg->media_path));
             $callback->($msg->media_path,$data,$msg) if ref $callback eq "CODE";
             return;
         }

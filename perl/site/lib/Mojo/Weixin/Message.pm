@@ -14,6 +14,13 @@ has allow_plugin => 1;
 has [qw( sender_id receiver_id group_id content type id class format)];
 has [qw( media_id media_type media_code media_mime media_name media_size media_data media_mtime media_ext media_path)];
 has [qw( app_id app_title app_url app_name app_desc)];
+has [qw( card_id card_name card_province card_city card_account card_avatar card_sex)];
+has [qw( revoke_id )];
+has [qw(code msg info)];
+has media_chunks   => undef;  #分片上传数量，只有1片的情况下不会采用分片上传，会直接上传
+has media_chunk    => 0;  #当前已经上传的分片数量
+has media_clientid => undef;
+has 'media_md5';
 has data => undef;
 
 sub new {

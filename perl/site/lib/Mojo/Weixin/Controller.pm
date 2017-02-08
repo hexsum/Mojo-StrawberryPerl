@@ -1,8 +1,5 @@
 package Mojo::Weixin::Controller;
-our $VERSION = '1.0.0';
 use strict;
-use warnings;
-use Carp;
 use Config;
 use File::Spec;
 use Mojo::Weixin::Base 'Mojo::EventEmitter';
@@ -15,56 +12,65 @@ use IO::Socket::IP;
 use Time::HiRes ();
 use Storable qw();
 use POSIX qw();
+use File::Spec ();
 use if $^O eq "MSWin32",'Win32::Process';
 use if $^O eq "MSWin32",'Win32';
-#use base qw(Mojo::Weixin::Util Mojo::Weixin::Request);
-use base qw(Mojo::Weixin::Util);
+use base qw(Mojo::Weixin::Util Mojo::Weixin::Request);
+our $VERSION = $Mojo::Weixin::VERSION;
 
 has backend => sub{+{}};
 has ioloop  => sub {Mojo::IOLoop->singleton};
 has backend_start_port => 3000;
 has post_api => undef;
+has poll_api => undef;
+has poll_interval => 5;
+has auth     => undef;
 has server =>  sub { Mojo::Weixin::Server->new };
 has listen => sub { [{host=>"0.0.0.0",port=>2000},] };
-has ua  => sub {Mojo::UserAgent->new(connect_timeout=>3,inactivity_timeout=>3,request_timeout=>3)};
+
+has http_debug          => sub{$ENV{MOJO_WEIXIN_CONTROLLER_HTTP_DEBUG} || 0 } ;
+has ua_debug            => sub{$_[0]->http_debug};
+has ua_debug_req_body   => sub{$_[0]->ua_debug};
+has ua_debug_res_body   => sub{$_[0]->ua_debug};
+has ua_debug_req_body   => sub{$_[0]->ua_debug};
+has ua_debug_res_body   => sub{$_[0]->ua_debug};
+has ua_retry_times          => 5;
+has ua_connect_timeout      => 10;
+has ua_request_timeout      => 120;
+has ua_inactivity_timeout   => 120;
+has ua  => sub {
+    Mojo::UserAgent->new(
+        connect_timeout=>$_[0]->ua_connect_timeout,
+        request_timeout=>$_[0]->ua_request_timeout,
+        inactivity_timeout=>$_[0]->ua_inactivity_timeout,
+    )
+};
 
 has tmpdir              => sub {File::Spec->tmpdir();};
+has keep_cookie         => 0;
+has cookie_path         => sub {File::Spec->catfile($_[0]->tmpdir,join('','mojo_weixin_controller_cookie','.dat'))};
 has pid_path            => sub {File::Spec->catfile($_[0]->tmpdir,join('','mojo_weixin_controller_process','.pid'))};
 has backend_path        => sub {File::Spec->catfile($_[0]->tmpdir,join('','mojo_weixin_controller_backend','.dat'))};
 has template_path        => sub {File::Spec->catfile($_[0]->tmpdir,join('','mojo_weixin_controller_template','.pl'))};
 has check_interval      => 5;
 
-has log_level           => 'info';     #debug|info|warn|error|fatal
+has log_level           => 'info';     #debug|info|msg|warn|error|fatal
 has log_path            => undef;
 has log_encoding        => undef;      #utf8|gbk|...
 has log_head            => "[wxc][$$]";
+has log_console         => 1;
+has disable_color       => 0;
 
 has version             => sub{$Mojo::Weixin::Controller::VERSION};
 
 has log     => sub{
-    my $self = $_[0];
     Mojo::Weixin::Log->new(
         encoding    =>  $_[0]->log_encoding,
         path        =>  $_[0]->log_path,
         level       =>  $_[0]->log_level,
-        format      =>  sub{
-            my ($time, $level, @lines) = @_;
-            my $title = "";
-            my $head  = $self->log_head || "";
-            if(ref $lines[0] eq "HASH"){
-                my $opt = shift @lines; 
-                $time = $opt->{"time"} if defined $opt->{"time"};
-                $title = $opt->{"title"} . " " if defined $opt->{"title"};
-                $level  = $opt->{"level"} if defined $opt->{"level"};
-                $head  = $opt->{"head"} if defined $opt->{"head"};
-            }
-            @lines = split /\n/,join "",@lines;
-            my $return = "";
-            $time = $time?POSIX::strftime('[%y/%m/%d %H:%M:%S]',localtime($time)):"";
-            $level = $level?"[$level]":"";
-            for(@lines){$return .= $head . $time . " " . $level . " " . $title . $_ . "\n";}
-            return $return;
-        }
+        head        =>  $_[0]->log_head,
+        disable_color   => $_[0]->disable_color,
+        console_output  => $_[0]->log_console,
     )
 };
 sub new {
@@ -89,12 +95,20 @@ sub new {
     $self->check_client();
     $SIG{CHLD} =  'IGNORE';
     $SIG{INT} = $SIG{KILL} = $SIG{TERM} = $SIG{HUP} = sub{
+        $self->info("捕获到停止信号[$_[0]]，准备停止...");
         $self->info("正在停止Controller...");
         $self->save_backend();
         $self->clean_pid();
         $self->stop();
     };
-    $0 = 'wxcontroller';
+    eval{$0 = 'wxcontroller';} if $^O ne 'MSWin32';
+    if(defined $self->poll_api){
+        $self->on('_mojo_weixin_controller_poll_over' => sub{
+            $self->http_get($self->poll_api,sub{
+                $self->ioloop->timer($self->poll_interval || 5,sub {$self->emit('_mojo_weixin_controller_poll_over');});
+            });
+        });
+    } 
     $Mojo::Weixin::Controller::_CONTROLLER = $self;
     $self;
 }
@@ -115,7 +129,7 @@ sub load_backend {
     my $self = shift;
     my $backend_path = $self->backend_path;
     return if not -f $backend_path;
-    eval{require Storable;$self->backend(Storable::retrieve($backend_path))};
+    eval{$self->backend(Storable::retrieve($backend_path))};
     if($@){
         $self->warn("Controller加载backend失败: $@");
         return;
@@ -173,14 +187,14 @@ sub kill_process {
 sub check_process {
     my $self = shift;
     if(!$_[0] or $_[0]!~/^\d+$/){
-        $self->error("pid无效，无法终止进程");
+        $self->error("pid无效，无法检测进程");
         return;
     }
     #if($^O  eq "MSWin32"){
     #    my $p;
     #    return Win32::Process::Open($p,$_[0],0);
     #}
-    else{ kill 0,$_[0] ;}
+    kill 0,$_[0];
 }
 sub start_client {
     my $self = shift;
@@ -189,19 +203,27 @@ sub start_client {
         return {code => 1, status=>'client not found',};
     }
     elsif(exists $self->backend->{$param->{client}}){
-        return {code=>0, status=>'client already exists',%{ $self->backend->{$param->{client}} }}
-            if $self->check_process($self->backend->{$param->{client}}{pid});
+        if( $self->check_process($self->backend->{$param->{client}}{pid}) ){
+            my %client = %{ $self->backend->{$param->{client}} };
+            for(keys %client){ delete $client{$_} if substr($_,0,1) eq "_"};
+            return {code=>0, status=>'client already exists',%client};
+        }
     }
     my $backend_port = empty_port({host=>'127.0.0.1',port=>$self->backend_start_port,proto=>'tcp'});
     return {code => 2, status=>'no available port',client=>$param->{client}} if not defined $backend_port;
     my $post_api = $param->{post_api} || $self->post_api;
+    my $poll_api = $param->{poll_api};
     if(defined $post_api){
         my $url = Mojo::URL->new($post_api);
         $url->query->merge(client=>$param->{client});
         $post_api =  $url->to_string;
     }
+    if(defined $poll_api){
+        my $url = Mojo::URL->new($poll_api);
+        $url->query->merge(client=>$param->{client});
+        $poll_api =  $url->to_string;
+    }
     $param->{account} = $param->{client};
-    $self->reform_hash($param);
 
     for my $env(keys %ENV){
         delete $ENV{$env} if $env=~/^MOJO_WEIXIN_([A-Z_]+)$/;
@@ -212,6 +234,19 @@ sub start_client {
     }
     $ENV{MOJO_WEIXIN_PLUGIN_OPENWX_PORT} = $backend_port;
     $ENV{MOJO_WEIXIN_PLUGIN_OPENWX_POST_API} = $post_api;
+    $ENV{MOJO_WEIXIN_PLUGIN_OPENWX_POLL_API} = $poll_api;
+
+    $ENV{MOJO_WEIXIN_LOG_PATH} = $self->log_path;
+    $ENV{MOJO_WEIXIN_LOG_ENCODING} = $self->log_encoding;
+    $ENV{MOJO_WEIXIN_LOG_CONSOLE} = $self->log_console;
+    $ENV{MOJO_WEIXIN_DISABLE_COLOR} = $self->disable_color;
+    $ENV{MOJO_WEIXIN_HTTP_DEBUG} = $self->http_debug;
+    $ENV{MOJO_WEIXIN_LOG_LEVEL} = $self->log_level;
+
+    $ENV{MOJO_WEIXIN_TMPDIR} = $self->tmpdir if not defined $ENV{MOJO_WEIXIN_TMPDIR};
+    $ENV{MOJO_WEIXIN_STATE_PATH} = File::Spec->catfile($ENV{MOJO_WEIXIN_TMPDIR},join('','mojo_weixin_state_',$ENV{MOJO_WEIXIN_ACCOUNT},'.json')) if not defined $ENV{MOJO_WEIXIN_STATE_PATH};
+    $ENV{MOJO_WEIXIN_QRCODE_PATH} = File::Spec->catfile($ENV{MOJO_WEIXIN_TMPDIR},join('','mojo_weixin_qrcode_',$ENV{MOJO_WEIXIN_ACCOUNT},'.jpg')) if not defined $ENV{MOJO_WEIXIN_QRCODE_PATH};
+    $ENV{MOJO_WEIXIN_PID_PATH} = File::Spec->catfile($ENV{MOJO_WEIXIN_TMPDIR},join('','mojo_weixin_pid_',$ENV{MOJO_WEIXIN_ACCOUNT},'.pid')) if not defined $ENV{MOJO_WEIXIN_PID_PATH};
     local $ENV{PERL5LIB} = join( ($^O eq "MSWin32"?";":":"),@INC);
     if(!-f $self->template_path or -z $self->template_path){
         my $template =<<'MOJO_WEIXIN_CLIENT_TEMPLATE';
@@ -220,8 +255,8 @@ use Mojo::Weixin;
 my $client = Mojo::Weixin->new(log_head=>"[$ENV{MOJO_WEIXIN_ACCOUNT}][$$]");
 $0 = "wxclient(" . $client->account . ")" if $^O ne "MSWin32";
 $SIG{INT} = 'IGNORE' if ($^O ne 'MSWin32' and !-t);
-$client->load(["ShowMsg","UploadQRcode","ShowQRcode"]);
-$client->load("Openwx",data=>{listen=>[{host=>"127.0.0.1",port=>$ENV{MOJO_WEIXIN_PLUGIN_OPENWX_PORT} }], post_api=>$ENV{MOJO_WEIXIN_PLUGIN_OPENWX_POST_API} || undef,post_event=>$ENV{MOJO_WEIXIN_PLUGIN_OPENWX_POST_EVENT} // 1,post_media_data=> $ENV{MOJO_WEIXIN_PLUGIN_OPENWX_POST_MEDIA_DATA} // 1},call_on_load=>1);
+$client->load(["ShowMsg","UploadQRcode"]);
+$client->load("Openwx",data=>{listen=>[{host=>"127.0.0.1",port=>$ENV{MOJO_WEIXIN_PLUGIN_OPENWX_PORT} }], post_api=>$ENV{MOJO_WEIXIN_PLUGIN_OPENWX_POST_API} || undef,post_event=>$ENV{MOJO_WEIXIN_PLUGIN_OPENWX_POST_EVENT} // 1,post_media_data=> $ENV{MOJO_WEIXIN_PLUGIN_OPENWX_POST_MEDIA_DATA} // 1, poll_api=>$ENV{MOJO_WEIXIN_PLUGIN_OPENWX_POLL_API} || undef, poll_interval => $ENV{MOJO_WEIXIN_PLUGIN_OPENWX_POLL_INTERVAL} },call_on_load=>1);
 $client->run();
 MOJO_WEIXIN_CLIENT_TEMPLATE
         $self->spurt($template,$self->template_path);
@@ -235,11 +270,22 @@ MOJO_WEIXIN_CLIENT_TEMPLATE
             $self->warn("perl路径包含空格或中文可能导致客户端创建失败: [" . $self->encode("utf8",$p) . "]");
         }
         if(Win32::Process::Create($process,$Config{perlpath},'perl ' . $self->template_path,0,CREATE_NEW_PROCESS_GROUP,".") ){
+            
+            my $pid;eval{$pid = $process->GetProcessID()};
+            if($pid!~/^\d+$/){
+                return {code=>4,status=>'client pid not ok' };
+            }
             $self->backend->{$param->{client}} = $param;
-            $self->backend->{$param->{client}}{pid} = $process->GetProcessID();
+            $self->backend->{$param->{client}}{pid} = $pid;
             $self->backend->{$param->{client}}{port} = $backend_port;
+            $self->backend->{$param->{client}}{_tmpdir} = $ENV{MOJO_WEIXIN_TMPDIR};
+            $self->backend->{$param->{client}}{_state_path} = $ENV{MOJO_WEIXIN_STATE_PATH};
+            $self->backend->{$param->{client}}{_pid_path} = $ENV{MOJO_WEIXIN_PID_PATH};
+            $self->backend->{$param->{client}}{_qrcode_path} = $ENV{MOJO_WEIXIN_QRCODE_PATH};
             delete $self->backend->{$param->{client}}{log_head};
-            return {code=>0,status=>'success',%{ $self->backend->{$param->{client}} } };    
+            my %client = %{ $self->backend->{$param->{client}} };
+            for(keys %client){ delete $client{$_} if substr($_,0,1) eq "_"}
+            return {code=>0,status=>'success',%client };    
         }
         else{
             $self->error(
@@ -263,12 +309,21 @@ MOJO_WEIXIN_CLIENT_TEMPLATE
             exec $Config{perlpath} || 'perl',$template_path;
         }
         else{
-            sleep 2;
+            select undef,undef,undef,0.05;
+            if($pid!~/^\d+$/){
+                return {code=>4,status=>'client pid not ok' };
+            }
             $self->backend->{$param->{client}} = $param;
             $self->backend->{$param->{client}}{pid} = $pid;
             $self->backend->{$param->{client}}{port} = $backend_port;
+            $self->backend->{$param->{client}}{_tmpdir} = $ENV{MOJO_WEIXIN_TMPDIR};
+            $self->backend->{$param->{client}}{_state_path} = $ENV{MOJO_WEIXIN_STATE_PATH};
+            $self->backend->{$param->{client}}{_pid_path} = $ENV{MOJO_WEIXIN_PID_PATH};
+            $self->backend->{$param->{client}}{_qrcode_path} = $ENV{MOJO_WEIXIN_QRCODE_PATH};
             delete $self->backend->{$param->{client}}{log_head};
-            return {code=>0,status=>'success',%{ $self->backend->{$param->{client}} } };
+            my %client = %{ $self->backend->{$param->{client}} };
+            for(keys %client){ delete $client{$_} if substr($_,0,1) eq "_"}
+            return {code=>0,status=>'success',%client };
         }
     }
 }
@@ -286,6 +341,7 @@ sub stop_client {
     if ($ret){
         my $client = $self->backend->{$param->{client}};
         delete $self->backend->{$param->{client}};
+        for(keys %$client){ delete $client->{$_} if substr($_,0,1) eq "_"}
         return {code=>0,status=>'success',%$client };
     }
     return {code=>1,status=>'failure'};
@@ -295,6 +351,8 @@ sub check_client {
     my $self = shift;
     for my $client ( keys %{ $self->backend }  ){
         my $pid = $self->backend->{$client}->{pid};
+        return if !$pid;
+        return if $pid !~ /^\d+$/;
         my $ret = $self->check_process($pid);
         if(not $ret){
             $self->warn("检测到客户端 $client\[$pid\] 不存在，删除客户端信息");
@@ -315,35 +373,142 @@ sub run {
         $self->check_client();
         $self->save_backend();
     });
+    $self->emit('_mojo_weixin_controller_poll_over');
     $self->ioloop->start if not $self->ioloop->is_running;
 }
 
+package Mojo::Weixin::Controller::App::Controller;
+use Mojo::JSON ();
+use Mojo::Util ();
+use base qw(Mojolicious::Controller);
+sub render{
+    my $self = shift;
+    if($_[0] eq 'json'){
+        $self->res->headers->content_type('application/json');
+        $self->SUPER::render(data=>Mojo::JSON::to_json($_[1]),@_[2..$#_]);
+    }
+    else{$self->SUPER::render(@_)}
+}
+sub safe_render{
+    my $self = shift;
+    $self->render(@_) if (defined $self->tx and !$self->tx->is_finished);
+}
+sub param{
+    my $self = shift;
+    my $data = $self->SUPER::param(@_);
+    defined $data?Mojo::Util::encode("utf8",$data):undef;
+}
+sub params {
+    my $self = shift;
+    my $hash = $self->req->params->to_hash ;
+    $self->stash('wxc')->reform($hash);
+    return $hash;
+}
 package Mojo::Weixin::Controller::App;
 use Mojolicious::Lite;
 use Mojo::Transaction::HTTP;
+app->controller_class('Mojo::Weixin::Controller::App::Controller');
+under sub {
+    my $c = shift;
+    if(ref $c->stash('wxc')->auth eq "CODE"){
+        my $hash  = $c->params;
+        my $ret = 0;
+        eval{
+            $ret = $c->stash('wxc')->auth->($hash,$c);
+        };
+        $c->stash('wxc')->warn("插件[Mojo::Weixin::Controller]认证回调执行错误: $@") if $@;
+        $c->safe_render(text=>"auth failure",status=>403) if not $ret;
+        return $ret;
+    }
+    else{return 1}
+};
 get '/openwx/start_client' => sub{
     my $c = shift;
-    my $hash   = $c->req->params->to_hash;
+    my $hash   = $c->params;
     my $result =  $c->stash('wxc')->start_client($hash);
-    $c->render(json=>$result);
+    $c->safe_render(json=>$result);
 };
 get '/openwx/stop_client' => sub{
     my $c = shift;
-    my $hash   = $c->req->params->to_hash;
+    my $hash   = $c->params;
     my $result = $c->stash('wxc')->stop_client($hash);
-    $c->render(json=>$result);
+    $c->safe_render(json=>$result);
+};
+get '/openwx/get_qrcode' => sub{
+    my $c = shift;
+    my $client = $c->param("client");
+    if(!$client){
+        $c->safe_render(json=>{code => 1, status=>'client not found',});
+        return;
+    }
+    elsif(!exists $c->stash('wxc')->backend->{$client}){
+        $c->safe_render(json => {code => 1, status=>'client not exists',});
+        return;
+    }
+    eval{
+        my $qrcode_path = $c->stash('wxc')->backend->{$client}{_qrcode_path};
+        my $data = $c->stash('wxc')->slurp($qrcode_path);
+        $c->res->headers->cache_control('no-cache');
+        $c->res->headers->content_type('image/jpg');
+        $c->safe_render(data=>$data,);
+    };
+    if($@){
+        $c->stash('wxc')->warn("读取客户端二维码失败: $@");
+        $c->safe_render(text=>"",status=>404);
+    }
 };
 get '/openwx/check_client' => sub{
     my $c = shift;
-    $c->render(json=>[ values %{ $c->stash('wxc')->backend } ]);    
+    my $client = $c->param("client");
+    if(defined $client){
+        if(!exists $c->stash('wxc')->backend->{$client}){
+            $c->safe_render(json => {code => 1, status=>'client not exists',});
+            return;
+        }
+        else{
+            eval{
+                my $state_path = $c->stash('wxc')->backend->{$client}{_state_path};
+                my $json = $c->stash('wxc')->decode_json($c->stash('wxc')->slurp($state_path));
+                $json->{port} = $c->stash('wxc')->backend->{$client}{port};
+                $c->safe_render(json=>{code=>0,client=>[$json]});
+            };
+            if($@){
+                $c->stash('wxc')->warn("读取客户端state文件失败: $@");
+                #$c->safe_render(json=>{code=>0,client=>[ $c->stash('wxc')->backend->{$client}, ] });
+                $c->safe_render(json=>{code => 1,status=>"client state file read error"});
+            }
+        }
+    }
+    else{
+        eval{
+            my @client;
+            for my $client ( values %{ $c->stash('wxc')->backend }){
+                my $state_path = $client->{_state_path};
+                my $json = $c->stash('wxc')->from_json($c->stash('wxc')->slurp($state_path));
+                $json->{port} = $client->{port};
+                push @client,$json;
+            }
+            $c->safe_render(json=>{code=>0,client=>\@client});
+        };
+        if($@){
+            $c->stash('wxc')->warn("读取客户端state文件失败: $@");
+            #$c->safe_render(json=>{code=>0,client=>[ values %{ $c->stash('wxc')->backend } ]});    
+            $c->safe_render(json=>{code => 1,status=>"client state file read error"});
+        }
+    }
 };
-any '/*whatever'  => sub{
+any '/openwx/*whatever'  => sub{
     my $c = shift;
-    my $client = $c->param('client');
-    if(not $client){
-        $c->render(json=>{code => 1, status=>'client not found',});
+    my $client = $c->param("client");
+    if(!$client){
+        $c->safe_render(json=>{code => 1, status=>'client not found',});
         return;
     }
+    elsif(!exists $c->stash('wxc')->backend->{$client}){
+        $c->safe_render(json => {code => 1, status=>'client not exists',});
+        return;
+    }
+    $c->inactivity_timeout(120);
     $c->render_later;
     my $tx = Mojo::Transaction::HTTP->new(req=>$c->req->clone);
     $tx->req->url->host("127.0.0.1");
@@ -351,13 +516,13 @@ any '/*whatever'  => sub{
     $tx->req->url->scheme('http');
     $tx->req->headers->header('Host',$tx->req->url->host_port);
     return if $c->stash('mojo.finished');
-    $c->ua->start($tx,sub{
+    $c->stash('wxc')->ua->start($tx,sub{
         my ($ua,$tx) = @_;
         $c->tx->res($tx->res);
         $c->rendered;
     });
 };
-#any '/*whatever'  => sub{whatever=>'',$_[0]->render(text=>"api not found",status=>403)};
+any '/*whatever'  => sub{whatever=>'',$_[0]->safe_render(json=>{code=>-1,status=>"api not found"},status=>403)};
 package Mojo::Weixin::Controller;
 
 sub can_bind {

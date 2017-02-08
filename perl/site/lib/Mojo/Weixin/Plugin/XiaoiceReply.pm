@@ -1,5 +1,6 @@
 package Mojo::Weixin::Plugin::XiaoiceReply;
 our $PRIORITY = 1;
+use List::Util qw(first);
 sub call{
     my $client = shift;
     my $data = shift;
@@ -11,7 +12,7 @@ sub call{
 
     $client->on(ready=>sub{
         #支持绑定的两个对象之间互相转发消息
-        my $xiaoice = $client->search_friend(account=>'ms-xiaoice');
+        my $xiaoice = $client->search_friend(account=>'xiaoice-ms');
         if(not defined $xiaoice){
             $client->error("未能在通讯录中搜索到 微软小冰 帐号信息，请确认是否已经关注 微软小冰 公众号");
             return;
@@ -26,18 +27,34 @@ sub call{
 
         $client->on(receive_message=>sub{
             my($client,$msg) = @_;
+            return if $msg->type !~ /^friend_message|group_message$/;
+            return if $msg->format !~ /^text|media$/;
             return if not $msg->allow_plugin;
             return if not $onoff_flag;
-            return if $is_need_at and $msg->type eq "group_message" and !$msg->is_at;
-            my $xiaoice = $client->search_friend(account=>'ms-xiaoice');
+            my $xiaoice = $client->search_friend(account=>'xiaoice-ms');
             if(not defined $xiaoice){
                 $client->error("未能在通讯录中搜索到 微软小冰 帐号信息，请确认是否已经关注 微软小冰 公众号");
                 return;
             }
+            if($msg->sender->id ne $xiaoice->id){
+                if($msg->type eq "group_message"){
+                    return if defined $data->{allow_group_reply} and !$data->{allow_group_reply};
+                    return if ref $data->{ban_group}  eq "ARRAY" and first {$msg->group->displayname eq $_} @{$data->{ban_group}};
+                    return if ref $data->{allow_group}  eq "ARRAY" and !first {$msg->group->displayname eq $_} @{$data->{allow_group}};
+                    return if ref $data->{ban_group_member}  eq "ARRAY" and first {$msg->sender->displayname eq $_} @{$data->{ban_group_user}};
+                    return if ref $data->{allow_group_member}  eq "ARRAY" and !first {$msg->sender->displayname eq $_} @{$data->{allow_group_user}};
+                    return if $is_need_at and !$msg->is_at;
+                }
+                else{
+                    return if defined $data->{allow_friend_reply} and !$data->{allow_friend_reply};
+                    return if ref $data->{ban_friend} eq "ARRAY" and first {$msg->sender->displayname eq $_} @{$data->{ban_user}};
+                    return if ref $data->{allow_friend} eq "ARRAY" and !first {$msg->sender->displayname eq $_} @{$data->{allow_user}};
+                }
+            }
             if($msg->sender->id eq $xiaoice->id){
                 my $binder = $db[0];
                 return if not defined $binder;
-                if($msg->format eq "media" and -e $msg->media_path){
+                if($msg->format eq "media" and (defined $msg->media_id or  -e $msg->media_path) ){
                     $binder->send_media($msg->media_path);
                 }
                 else{
@@ -49,7 +66,7 @@ sub call{
                 if (@db == 0){
                     $db[0] = $object;
                     $msg->remove_at();
-                    if($msg->format eq "media" and -e $msg->media_path){
+                    if($msg->format eq "media" and (defined $msg->media_id or -e $msg->media_path) ){
                         $xiaoice->send_media($msg->media_path);
                     }
                     else{
@@ -58,7 +75,7 @@ sub call{
                 }
                 elsif(@db > 0 and $db[0]->id eq $object->id){
                     $msg->remove_at();
-                    if($msg->format eq "media" and -e $msg->media_path){
+                    if($msg->format eq "media" and (defined $msg->media_id or -e $msg->media_path )){
                         $xiaoice->send_media($msg->media_path);
                     }
                     else{

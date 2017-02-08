@@ -1,12 +1,39 @@
 package Mojo::Weixin::Message::Base;
-use Mojo::Weixin::Base -base;
+use Mojo::Weixin::Base 'Mojo::EventEmitter';
 use Data::Dumper;
 use Mojo::Util qw();
-use Encode qw(decode_utf8);
 use Scalar::Util qw(blessed);
 
 sub client {
     return $Mojo::Weixin::_CLIENT;
+}
+sub is_success{
+    my $self = shift;
+    return $self->code == 0?1:0;
+}
+sub send_status{
+    my $self = shift;
+    my %opt = @_;
+    $self->code($opt{code})->msg($opt{msg})->info($opt{info});
+}
+sub _parse_send_status_data {
+    my $self = shift;
+    my $json = shift;
+    if(defined $json){
+        if($json->{BaseResponse}{Ret}!=0){
+            $self->send_status(
+                        code=>$json->{BaseResponse}{Ret},
+                        msg=>"发送失败",
+                        info=>($json->{BaseResponse}{ErrMsg}||"unknown error"),
+                    );
+        }
+        else{
+            $self->send_status(code=>0,msg=>"发送成功",info=>"success");
+        }
+    }
+    else{
+        $self->send_status(code=>-1,msg=>"发送失败",info=>"unknown data");
+    }
 }
 sub to_json_hash{
     my $self = shift;
@@ -15,23 +42,32 @@ sub to_json_hash{
         next if substr($key,0,1) eq "_";
         if($key eq "sender"){
             next if $self->type eq "group_notice";
-            $json->{sender} = decode_utf8($self->sender->displayname);
+            $json->{sender} = $self->sender->displayname;
             $json->{sender_account} = $self->sender->account;
+            $json->{sender_uid} = $self->sender->uid;
+            $json->{sender_name} = $self->sender->name;
+            $json->{sender_markname} = $self->sender->markname;
         }
         elsif($key eq "receiver"){
             next if $self->type eq 'group_message' and $self->class eq 'send';
-            $json->{receiver} = decode_utf8($self->receiver->displayname);
+            $json->{receiver} = $self->receiver->displayname;
             $json->{receiver_account} = $self->receiver->account;
+            $json->{receiver_uid} = $self->receiver->uid;
+            $json->{receiver_name} = $self->receiver->name;
+            $json->{receiver_markname} = $self->receiver->markname;
         }
         elsif($key eq "group"){
             next if ($self->type ne "group_message" and $self->type ne "group_notice");
-            $json->{group} = decode_utf8($self->group->displayname);
+            $json->{group} = $self->group->displayname;
+            $json->{group_uid} = $self->group->uid;
+            $json->{group_name} = $self->group->name;
         }
         elsif($key eq "media_data"){
             $json->{$key} = defined $self->{$key}?Mojo::Util::b64_encode($self->{$key}):"";
         }
+        elsif($key eq 'events'){next}
         elsif(ref $self->{$key} eq ""){
-            $json->{$key} = decode_utf8($self->{$key} || "");
+            $json->{$key} = $self->{$key} || "";
         }
     }
     return $json;
@@ -96,6 +132,9 @@ sub dump{
         }
         elsif($_ eq 'media_data'){
             $clone->{$_} = '[binary data not shown]';
+        }
+        elsif($_ eq 'events'){
+            next;
         }
         else{
             $clone->{$_} = $self->{$_};

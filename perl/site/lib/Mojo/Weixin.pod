@@ -132,7 +132,7 @@ Mojo::Weixin - A Weixin Client Framework base on Mojolicious
 =head3 客户端对象属性
 
     $client->log_level  #日志记录等级 默认info
-    $client->log_path   #日志记录路径，默认undef，打印到STDERR
+    $client->log_path   #日志记录路径，默认undef，打印到STDOUT
     $client->version    #客户端版本
 
     #获取客户端属性
@@ -154,13 +154,15 @@ Mojo::Weixin - A Weixin Client Framework base on Mojolicious
     keep_cookie     #默认为1，0表示不保存登录cookie，1表示保存登录cookie方便下次直接恢复登录
 
     log_level       #默认级别为info，可以设置debug|info|warn|error|fatal
-    log_path        #默认客户端输出内容打印到STDERR 设置该参数可以将客户端输出重定向到文件
+    log_path        #默认客户端输出内容打印到STDOUT 设置该参数可以将客户端输出重定向到文件
+    log_console     #打印到文件的同时也打印到屏幕，方便调试，默认 1
     log_encoding    #输出日志的编码，默认自动检测，如果出现乱码可以尝试手动设置一下输出编码
                     #编码必须是 Encode 模块支持的格式，比如utf8 gbk等
 
     tmpdir          #程序使用的临时目录，主要用于保存一些验证码、二维码等数据，默认为系统临时目录
     cookie_path     #登录cookie的保存文件，默认为 tmpdir/mojo_weixin_cookie_default.dat（多账号运行时设置不同account）
-    pic_dir         #图片接收默认地址，默认为 tmpdir 参数所设置的目录
+    media_dir       #图片接收默认地址，默认为 tmpdir 参数所设置的目录
+    download_media  #是否自动下载媒体文件，默认值为1
 
     qrcode_path     #二维码保存路径，默认是 tmpdir 目录下固定文件名
     emoji_to_text   #默认为1，是否把emoji表情字符转为 "[微笑]" 形式的文本
@@ -172,6 +174,12 @@ Mojo::Weixin - A Weixin Client Framework base on Mojolicious
 
     qrcode_count_max #每个二维码都有一个过期时间，过期后会重新下载一个二维码继续等待扫描
                      #如果等待扫码次数超过 qrcode_count_max 客户端会停止运行，默认10次
+
+    is_init_group_member   #是否在客户端初始登录时获取详细的群成员信息（比如account/sex）等，
+                           #默认为0，如果你很在意这些群成员属性，可以设置为1，但可能会极大降低启动速度
+
+    #注意：所有参数都支持通过环境变量来设置，参数对应的环境变量格式 MOJO_WEIXIN_{参数名大写}
+    #比如: MOJO_WEIXIN_ACCOUNT、 MOJO_WEIXIN_HTTP_DEBUG
 
 =head4 login 客户端登录
 
@@ -323,8 +331,14 @@ Mojo::Weixin - A Weixin Client Framework base on Mojolicious
     my ($http_body,$ua,$tx) = $client->http_get($url,$header);
 
     #可以在http header设置一些请求相关的选项，比如：
-    #json=>1 表示将响应的json数据进行json decode得到perl的hash引用
-    #retry_times=>3 表示请求失败自动重试次数，默认使用$client->ua_retry_times的值
+    #json=>1                表示将响应的json数据进行json decode得到perl的hash引用
+    #ua_retry_times=>3      表示请求失败自动重试次数，默认使用$client->ua_retry_times的值
+    #ua_debug               是否打印http请求调试信息
+    #ua_debug_res_body      是否打印http响应的body
+    #ua_debug_req_body      是否打印http请求的body
+    #ua_connect_timeout     阻塞http请求建立连接超时时间
+    #ua_request_timeout     阻塞http请求等待响应超时时间
+    #ua_inactivity_timeout  阻塞http请求idle 超时时间
     my $json_decode_hash = $client->http_get($url,{json=>1,retry_times=>3,Host=>"www.qq.com"});
 
     #http post请求
@@ -356,7 +370,19 @@ Mojo::Weixin - A Weixin Client Framework base on Mojolicious
     #支持按任意群对象属性进行组合搜索，标量上下文返回符合条件的第一个好友对象，列表上下文返回全部对象
     my $group = $client->search_group(name=>xxx);
 
-=head4 create_group()  创建群聊
+=head4 set_markname 设置好友或群成员备注
+
+    $friend->set_markname("小王");
+    $friend->set_markname(""); #取消备注
+    $member->set_markname("小李");
+
+=head4 stick() 置顶群组
+
+    $group->stick(0);#取消置顶
+    $group->stickp(1);#置顶
+    $friend->stick(1);
+
+=head4 create_group()  创建群组
 
     #hash传参
     my $group = $client->create_group({
@@ -624,6 +650,13 @@ Mojo::Weixin - A Weixin Client Framework base on Mojolicious
         ...;
     });
 
+=head2 before_send_message 消息发送前
+
+    $client->on(before_send_message=>sub{
+        my($client,$msg)= @_;
+        $msg->content(  $msg->content . "——我是一个消息小尾巴"  );
+    });
+
 =head2 send_message 消息发送完成
 
     $client->on(send_message=>sub{
@@ -634,6 +667,22 @@ Mojo::Weixin - A Weixin Client Framework base on Mojolicious
         else{
             print "消息" . $msg->id . "发送失败，失败原因：" . $status->info . "\n";
         }
+    });
+
+=head2 state_change 客户端状态改变
+
+    init                    #客户端初始状态
+    loading                 #加载插件
+    scaning                 #等待扫码
+    confirming              #等待手机点击[登录]
+    updating                #更新好友、群组信息
+    running                 #客户端运行中，可以正常接收、发送消息
+    stop                    #客户端停止运行
+
+    状态迁移过程：init => loading => scaning => confirming => updating => running => stop 
+
+    $cient->on(state_change=>sub{
+        my($client,$old_state,$new_state) = @_;
     });
 
 =head2 input_qrcode 需要扫描二维码
@@ -815,15 +864,16 @@ Mojo::Weixin - A Weixin Client Framework base on Mojolicious
     $client->load("IRCShell",data=>{
         listen=>[ {host=>"127.0.0.1",port=>6667},], #可选，IRC服务器监听的地址+端口，默认0.0.0.0:6667
         load_friend => 1, #默认是0 是否初始为每个好友生成irc虚拟帐号并加入频道 #我的好友
+        master_irc_nick => "你的微信昵称", #用于识别哪个irc用户是你自己
     });
     #支持的参数包括：
     listen              #监听的地址和端口，数组的形式来支持多个地址
                         # listen=>[ {host=>"127.0.0.1",port=>6667}, {host=>"127.0.0.1",port=>6668}]
                         # 表示监听127.0.0.1:6667和 127.0.0.1:6668两个端口
-    master_irc_user     #和qq匹配的irc user帐号，默认按照和qq号相同的user或者客户端ip是本机地址作为识别规则
-    load_friend         #0|1 默认是0 是否初始为每个好友生成irc虚拟帐号并加入频道 #我的好友
-    image_api           #兼容elimage图床api地址，将qq图片转为连接，方便在irc上查看图片，默认没有启用
-                        #推荐依云的elimage http://img.vim-cn.com/
+    master_irc_nick     #和微信匹配的irc帐号昵称，默认按照和微信号相同的昵称或者客户端ip是本机地址作为识别规则
+    load_friend         #0|1 默认是1 是否初始为每个好友生成irc虚拟帐号并加入频道 #我的好友
+    upload_api          #图床api地址，将qq图片转为连接，方便在irc上查看图片
+                        ##默认采用的是 https://sm.ms/api/upload 接口文档 https://sm.ms/doc/
 
 微信好友会默认加入到irc的 '#我的好友' 频道中
 
@@ -862,6 +912,12 @@ Mojo::Weixin - A Weixin Client Framework base on Mojolicious
 调用系统图片查看程序来示二维码（目前仅支持win）
 
     $client->load("ShowQRcode");
+
+=head2 Mojo::Weixin::Plugin::ShowQRCodeInTerm
+
+Linux系统下直接打印二维码到终端，作者 hyvinlam L<https://github.com/hyvinlam>
+
+    $client->load("ShowQRCodeInTerm");
 
 =head2 Mojo::Weixin::Plugin::PostQRcode
 
@@ -941,6 +997,26 @@ Mojo::Weixin - A Weixin Client Framework base on Mojolicious
         is_need_at  => 1,           #可选，是否需要艾特我来触发智能回复
         comamnd_on  => "小冰启动",  #可选，启动智能回复的命令，在手机端发送给任何人/群该消息内容即可
         comamnd_off => "小冰停止",  #可选，停止智能回复的命令，在手机端发送给任何人/群该消息内容即可
+        allow_group        => ["PERL学习交流"],    #可选，允许插件的群显示名称
+        ban_group          => ["私人群","测试群"], #可选，禁用该插件的群显示名称
+        allow_group_member => ["王大锤"],          #可选，允许该插件的群成员显示名称
+        ban_group_member   => ["王小二","坏蛋"],   #可选，禁用该插件的群成员显示名称
+        ban_friend         => ["坏蛋","小灰"],     #可选，禁用该插件的好友显示名称
+        allow_friend       => ["可爱"],            #可选，允许该插件的好友显示名称
+        allow_group_reply  => 1,                   #可选，是否允许回复群消息，默认1
+        allow_friend_reply => 1,                   #可选，是否允许回复好友消息，默认1
+    });
+
+=head2 Mojo::Weixin::Plugin::GCM
+
+接收消息通过谷歌提供的GCM接口发送到android手机
+
+    $client->load("GCM",data=>{
+        api_url         => 'https://gcm-http.googleapis.com/gcm/send',#可选
+        api_key         =>'xxx', #需要向谷歌申请
+        registration_ids=>["xxx"],#android设备的注册id
+        allow_group     =>["允许推送消息的群名称1","允许推送消息的群名称2"],
+        ban_group       =>["禁止推送消息的群名称"],
     });
 
 =head2 Mojo::Weixin::Plugin::SmartReply
@@ -971,8 +1047,8 @@ Mojo::Weixin - A Weixin Client Framework base on Mojolicious
 其他更多参数设置
 
     $client->load("KnowledgeBase",data=>{
-        allow_group => ["PERL学习交流"],  #可选，允许插件的群，可以是群名称或群号码
-        ban_group   => ["私人群1","私人群2"], #可选，禁用该插件的群，可以是群名称或群号码
+        allow_group => ["PERL学习交流"],  #可选，允许插件的群名称
+        ban_group   => ["私人群1","私人群2"], #可选，禁用该插件的群名称
         file => './KnowledgeBase.dat', #数据库保存路径
         learn_command  => 'learn',     #自定义学习指令关键字
         delete_command =>'del',      #自定义删除指令关键字
@@ -1025,7 +1101,13 @@ Mojo::Weixin - A Weixin Client Framework base on Mojolicious
         auth   => sub {my($param,$controller) = @_},    #可选，认证回调函数，用于进行请求鉴权
         post_api => 'http://xxxx',                      #可选，你自定义的接收消息上报接口
         post_event => 1,                                #可选，是否上报事件，为了向后兼容性，默认值为0
+        post_media_data => 1,                           #可选，是否上报经过base64编码的图片原始数据，默认值为1
+        post_event_list => ['login','stop','state_change','input_qrcode'], #可选，上报事件列表
+        #poll_api  => 'http://xxxx',                     #可选，从外网调用内网程序的api时需要使用到，默认不启用
+        #poll_interval   => 5,                           #可选，长轮询请求间隔，默认5s
     });
+
+    #关于 poll_api 参数的说明，参见L<https://github.com/sjdy521/Mojo-Weixin/blob/master/API.md#关于内网穿透的说明>
 
     #若data中设置了auth函数引用，则表示api接口开启认证
     #认证函数返回值为真，认证通过，函数返回值为假，认证失败，接口返回403
