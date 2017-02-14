@@ -862,18 +862,68 @@ Mojo::Weixin - A Weixin Client Framework base on Mojolicious
 需要依赖模块 L<Mojo::IRC::Server::Chinese>
 
     $client->load("IRCShell",data=>{
-        listen=>[ {host=>"127.0.0.1",port=>6667},], #可选，IRC服务器监听的地址+端口，默认0.0.0.0:6667
-        load_friend => 1, #默认是0 是否初始为每个好友生成irc虚拟帐号并加入频道 #我的好友
-        master_irc_nick => "你的微信昵称", #用于识别哪个irc用户是你自己
+        listen=>[ {host=>"0.0.0.0",port=>6667},], #可选，IRC服务器监听的地址+端口，默认0.0.0.0:6667
+        load_friend => 0, #可选，是否初始为每个好友生成irc虚拟帐号并加入频道 #我的好友
     });
     #支持的参数包括：
     listen              #监听的地址和端口，数组的形式来支持多个地址
                         # listen=>[ {host=>"127.0.0.1",port=>6667}, {host=>"127.0.0.1",port=>6668}]
                         # 表示监听127.0.0.1:6667和 127.0.0.1:6668两个端口
-    master_irc_nick     #和微信匹配的irc帐号昵称，默认按照和微信号相同的昵称或者客户端ip是本机地址作为识别规则
-    load_friend         #0|1 默认是1 是否初始为每个好友生成irc虚拟帐号并加入频道 #我的好友
-    upload_api          #图床api地址，将qq图片转为连接，方便在irc上查看图片
-                        ##默认采用的是 https://sm.ms/api/upload 接口文档 https://sm.ms/doc/
+    allow_group         # allow_group=>["群组1名称","群组2名称",], #可选，允许在irc上创建的微信群名称
+    ban_group           # ban_group=>["群组1名称","群组2名称"],  #可选，禁止在irc上创建的微信群名称
+    master_irc_nick     # 和微信关联的irc客户端昵称，默认按照和微信号相同的昵称或者客户端ip是本机地址作为识别规则
+                        # 用于识别哪个连接到服务器上的irc用户是你自己
+    auto_join_channel   #0|1 默认为1，开启该选项，收到未加入的频道消息会自动加入频道并接收消息，主要为了防止漏收
+    load_friend         #0|1 默认是0 是否初始为每个好友生成irc虚拟帐号并加入频道 #我的好友
+    upload_api          #图床api地址，将图片转为连接，方便在irc上查看图片
+                        #支持兼容 http://img.vim-cn.com/ 的接口，考虑到隐私问题，默认不开启
+
+    #以下参数需要 Mojo::IRC::Server::Chinese v1.8.1及以上版本
+
+    #TLS支持
+
+    #代码示例
+    $client->load("IRCShell",data=>{
+        listen=>[ 
+            {host=>"0.0.0.0",port=>6667},         #监听普调端口
+            {host=>"0.0.0.0",port=>6697,tls=>1},  #监听6697端口，开启TLS加密
+        ],
+    });
+
+    #支持的TLS参数：
+    #更多详细参数使用说明参见 https://metacpan.org/pod/Mojo::IOLoop::Server#tls
+    tls                 #0|1 是否启用tls加密
+    tls_ca              #可选，本地ca证书路径 例如 /etc/tls/ca.crt
+    tls_cert            #可选，服务器证书路径，默认会生成一个测试证书
+    tls_ciphers         #可选，加密套件，例如 AES128-GCM-SHA256:RC4:HIGH:!MD5:!aNULL:!EDH
+    tls_key             #可选，服务器证书key文件路径
+    tls_verify          #可选，验证模式
+    tls_version         #可选，协议版本，例如 TLSv1_2
+
+    create_chanserv_user #0|1 默认为1，是否创建频道时自动生成昵称为 ChanServ 的虚拟用户
+                         #主要用于解决频道人数为空时，HexChat等某些客户端/list无法获取到频道信息的问题
+
+    auth                 #登录验证函数，在客户端登录后被执行，返回 1 验证通过，返回 0 验证失败
+
+    代码举例：
+    $client->load("IRCShell",data=>{
+        auth => sub{
+            my($nick,$user,$pass) = @_; #传递给验证函数的三个参数依次是 irc客户端的NICK/USER/PASS
+            if($nick eq '小灰'){#对于昵称"小灰"进行密码验证
+                return 0 if not defined $pass; #没有设置密码，验证失败
+                return 0 if $pass ne '123456'; #设置的密码不是 "123456" 验证失败
+                return 1; #验证成功，允许正常登录
+            }
+            else{return 1;}#对其他登录昵称不进行验证，全部允许登录
+        }
+    });
+
+特殊自定义指令：
+
+    #irc消息中 `sendFile `或者`!!`开头，则发送本地或者来自网络的图片、文件等媒体
+    sendFile /tmp/abc.jpg
+    sendFile http://example.com/abc.jpg
+    !!/tmp/abc.jpg
 
 微信好友会默认加入到irc的 '#我的好友' 频道中
 
@@ -1017,6 +1067,7 @@ Linux系统下直接打印二维码到终端，作者 hyvinlam L<https://github.
         registration_ids=>["xxx"],#android设备的注册id
         allow_group     =>["允许推送消息的群名称1","允许推送消息的群名称2"],
         ban_group       =>["禁止推送消息的群名称"],
+        is_ban_official =>0, #是否禁止推送公众号消息，默认允许
     });
 
 =head2 Mojo::Weixin::Plugin::SmartReply
@@ -1095,7 +1146,26 @@ Linux系统下直接打印二维码到终端，作者 hyvinlam L<https://github.
 
 提供HTTP API接口，方便获取客户端帐号、好友、群信息，以及通过接口发送和接收好友消息、群消息、事件信息
 
-    #ata是一个HASH引用
+CPAN文档可能比较旧或者表达的信息不够丰富，请参考github上API相关说明L<https://github.com/sjdy521/Mojo-Weixin/blob/master/API.md>
+
+    #同时支持http/https请求
+    $client->load("Openqq",data=>{
+        listen => [
+            {   host=>"0.0.0.0",
+                port=>5000,                       #监听5000端口的http请求
+            },
+            {
+                host    =>"0.0.0.0",
+                port    =>443,                    #可选，https请求监听端口，默认443
+                tls     =>1,                      #必选，开启https请求支持
+                tls_ca      =>"/etc/tls/ca.crt"       #可选，ca证书路径
+                tls_cert    =>"/etc/tls/server.crt"   #可选，服务器证书路径，默认生成一个测试证书
+                tls_key     =>"/etc/tls/server.key"   #可选，证书对应的key文件，默认生成一个测试key文件
+            },#更多tls参数支持参考 https://metacpan.org/pod/Mojo::IOLoop::Server#tls
+        ],
+    });
+
+    #data是一个HASH引用
     $client->load("Openwx",data=>{
         listen => [ {host=>"127.0.0.1",port=>3000}, ] , #监听的地址和端口，支持多个，默认监听0.0.0.0:3000
         auth   => sub {my($param,$controller) = @_},    #可选，认证回调函数，用于进行请求鉴权

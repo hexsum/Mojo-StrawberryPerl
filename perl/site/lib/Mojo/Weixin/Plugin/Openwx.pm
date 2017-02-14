@@ -518,7 +518,7 @@ sub call{
     any [qw(GET POST)] => '/openwx/stick' => sub{
         my $c = shift;
         my($id,$op)= ($c->param("id"),$c->param("op"));
-        my $object = $client->is_group($id)?$client->search_group(id=>$id,):$client->search_friend(id=>$id);
+        my $object = $client->is_group_id($id)?$client->search_group(id=>$id,):$client->search_friend(id=>$id);
         if(defined $object){
             if($object->stick($op)){
                 $c->safe_render(json=>{code=>0,status=>"success"});
@@ -607,7 +607,7 @@ sub call{
         my $p = $c->params;
         my($id,$account,$displayname,$markname,$group_id) = @$p{qw( id account displayname markname group_id )};
         my $object =    (defined $id and $id eq $client->user->id) ? $client->user 
-                :       $client->is_group($id)? $client->search_group(id=>$id,displayname=>$displayname)
+                :       $client->is_group_id($id)? $client->search_group(id=>$id,displayname=>$displayname)
                 :       undef
         ;
         if(not defined $object){
@@ -692,7 +692,26 @@ sub call{
         $server->listen([ map { 'http://' . (defined $_->{host}?$_->{host}:"0.0.0.0") .":" . (defined $_->{port}?$_->{port}:5000)} @$data]);
     }
     elsif(ref $data eq "HASH" and ref $data->{listen} eq "ARRAY"){
-        $server->listen([ map { 'http://' . (defined $_->{host}?$_->{host}:"0.0.0.0") .":" . (defined $_->{port}?$_->{port}:5000)} @{ $data->{listen}} ]) ;
+        my @listen;
+        for my $listen (@{$data->{listen}}) {
+            if($listen->{tls}){
+                my $listen_url = 'https://' . ($listen->{host} // "0.0.0.0") . ":" . ($listen->{port}//443);
+                my @ssl_option;
+                for(keys %$listen){
+                    next if ($_ eq 'tls' or $_ eq 'host' or $_ eq 'port');
+                    my $key = $_;
+                    my $val = $listen->{val};
+                    $key=~s/^tls_//g;
+                    push @ssl_option,"$_=$listen->{$_}";
+                }
+                $listen_url .= "?" . join("&",@ssl_option) if @ssl_option;
+                push @listen,$listen_url;
+            }
+            else{
+                push @listen,'http://' . ($listen->{host} // "0.0.0.0") . ":" . ($listen->{port}//5000) ;
+            }
+        }   
+        $server->listen(\@listen) ;
     }
     $server->start;
 }

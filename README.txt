@@ -4,7 +4,7 @@
 
 如果github下载ZIP压缩包速度较慢，可以尝试从如下腾讯云存储地址下载RAR压缩包
 
-http://share-10066126.cos.myqcloud.com/Mojo-StrawberryPerl-20170208.rar
+http://share-10066126.cos.myqcloud.com/Mojo-StrawberryPerl-20170214.rar
 
 【运行】
 1、运行批处理 start_mojo_webqq.bat 或者 start_mojo_weixin.bat 来启动程序
