@@ -226,6 +226,18 @@ sub call{
     use Mojolicious::Lite;
     no utf8;
     app->controller_class('Mojo::Webqq::Plugin::Openqq::App::Controller');
+    app->hook(after_render=>sub{
+        my ($c, $output, $format) = @_;
+
+        $c->res->headers->header("Access-Control-Allow-Origin" => "*");
+
+        my $datatype =  $c->param("datatype");
+        return if not defined $datatype;
+        return if defined $datatype and $datatype ne 'jsonp';
+        my $jsoncallback = $c->param("callback") || 'jsoncallback' . time;
+        return if not defined $jsoncallback;
+        $$output = "$jsoncallback($$output)";
+    });
     under sub {
         my $c = shift;
         if(ref $data eq "HASH" and ref $data->{auth} eq "CODE"){
@@ -262,6 +274,15 @@ sub call{
         }
         else{$c->safe_render(json=>{id=>undef,code=>100,status=>"friend not found"});}
     };
+    get '/openqq/relogin' => sub {
+            my $c = shift;
+            $c->safe_render(json=>{
+                    code=>0,
+                    account=>$client->account,
+                    status=>"success, client($$) will relogin in 3 seconds",
+                });
+            $client->timer(3=>sub{$client->relogin()});#3秒后再执行，让客户端可以收到该api的响应
+        };
     any [qw(GET POST)] => 'openqq/send_group_message'    => sub{
         my $c = shift;
         my $p = $c->params;
@@ -418,7 +439,7 @@ sub call{
         }
         else{$c->safe_render(json=>{code=>200,status=>"member id empty"});}
     };
-    any [qw(GET POST)] => '/openwx/check_event'          => sub{
+    any [qw(GET POST)] => '/openqq/check_event'          => sub{
         my $c = shift;
         $c->render_later;
         if($check_event_list->size > 0){

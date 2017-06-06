@@ -1,7 +1,7 @@
 package Mojo::Webqq;
 use strict;
 use Carp ();
-$Mojo::Webqq::VERSION = "2.0.8";
+$Mojo::Webqq::VERSION = "2.1.2";
 use Mojo::Webqq::Base 'Mojo::EventEmitter';
 use Mojo::Webqq::Log;
 use Mojo::Webqq::Cache;
@@ -29,6 +29,16 @@ has log_console         => 1;
 has check_account       => 0;           #是否检查预设账号与实际登录账号是否匹配
 has disable_color       => 0;           #是否禁用终端打印颜色
 has ignore_retcode      => sub{[0,1202,100100]}; #对发送消息返回这些状态码不认为发送失败，不重试
+has ignore_poll_http_code => sub{[504,502]}; #忽略接收消息请求返回的502/504状态码，因为并不影响消息接收，以免引起恐慌
+has ignore_unknown_id   => 1; #其他设备上自己发送的消息，在webqq上会以接受消息的形式再次接收到，id还未知,是否忽略掉这种消息
+
+#原始信息中包含id/name/card
+#扩展信息中包含uid/name/card
+#二者没办法直接建立关联，只能够通过 name+card 相同时认为是匹配同一个用户，并非严谨，但大部分情况下可以满足要求
+#group_member_identify_callback提供了对name和card进行自定义处理
+#传递给group_member_identify_callback的参数是群成员的 ($name,$card)
+#默认 group_member_identify_callback 不设置，相当于sub { my($name,$card)=@_; return $name . $card};
+has group_member_identify_callback => undef;
 
 has is_init_friend         => 1;                            #是否在首次登录时初始化好友信息
 has is_init_group          => 1;                            #是否在首次登录时初始化群组信息
@@ -226,7 +236,7 @@ sub new {
         }
     }
     $self->info("当前正在使用 Mojo-Webqq v" . $self->version);
-    $self->warn("当前版本与1.x.x版本不兼容，改动详情参见更新日志");
+    #$self->warn("当前版本与1.x.x版本不兼容，改动详情参见更新日志");
     $self->ioloop->reactor->on(error=>sub{
         my ($reactor, $err) = @_;
         $self->error("reactor error: " . Carp::longmess($err));
@@ -252,7 +262,7 @@ sub new {
     });
     $self->on(state_change=>sub{
         my $self = shift;
-        $self->save_state();
+        $self->save_state(@_);
     });
     $self->on(qrcode_expire=>sub{
         my($self) = @_;

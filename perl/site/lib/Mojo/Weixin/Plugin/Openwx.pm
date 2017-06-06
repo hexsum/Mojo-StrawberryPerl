@@ -189,7 +189,7 @@ sub call{
                 if($tx->res->headers->content_type =~m#text/json|application/json#){
                     #文本类的返回结果必须是json字符串
                     my $json;
-                    eval{$json = $tx->res->json};
+                    eval{$json = $client->from_json($tx->res->body)};
                     if($@){$client->warn($@);return}
                     if(defined $json){
                         #{code=>0,reply=>"回复的消息",format=>"text"}
@@ -242,6 +242,9 @@ sub call{
     app->controller_class('Mojo::Weixin::Plugin::Openwx::App::Controller');
     app->hook(after_render=>sub{
         my ($c, $output, $format) = @_;
+
+        $c->res->headers->header("Access-Control-Allow-Origin" => "*");
+
         my $datatype =  $c->param("datatype");
         return if not defined $datatype;
         return if defined $datatype and $datatype ne 'jsonp';

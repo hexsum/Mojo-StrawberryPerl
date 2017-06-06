@@ -407,6 +407,7 @@ sub clean_pid {
 
 sub save_state{
     my $self = shift;
+    my($previous_state,$current_state) = @_;
     my @attr = qw( 
         account 
         version 
@@ -435,6 +436,7 @@ sub save_state{
         for my $attr (@attr){
             $json->{$attr} = $self->$attr;
         }
+        $json->{previous_state} = $previous_state;
         $json->{pid} = $$;
         $json->{os}  = $^O;
         for my $p (keys %{ $self->plugins }){
@@ -448,6 +450,12 @@ sub save_state{
 sub is_load_plugin {
     my $self = shift;
     my $plugin = shift;
-    return exists $self->plugins->{ substr($plugin,0,1) eq '+'?$plugin:"Mojo::Webqq::Plugin::$plugin" };
+    if(substr($plugin,0,1) eq '+'){
+        substr($plugin,0,1) = "";
+    }
+    else{
+        $plugin = "Mojo::Webqq::Plugin::$plugin";
+    }
+    return exists $self->plugins->{$plugin};
 }
 1;

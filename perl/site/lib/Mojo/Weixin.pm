@@ -1,5 +1,5 @@
 package Mojo::Weixin;
-our $VERSION = '1.3.2';
+our $VERSION = '1.3.4';
 use Mojo::Weixin::Base 'Mojo::EventEmitter';
 use Mojo::IOLoop;
 use Mojo::Weixin::Log;
@@ -23,6 +23,7 @@ has disable_color       => 0;           #是否禁用终端打印颜色
 
 has is_init_group_member => 0;
 has is_update_group_member => 1;
+has is_update_all_friend => 1;
 
 has account             => sub{ $ENV{MOJO_WEIXIN_ACCUNT} || 'default'};
 has start_time          => time;
@@ -71,6 +72,7 @@ has ua_inactivity_timeout   => 35;
 has is_first_login          => -1;
 has login_state             => 'init';
 has qrcode_upload_url       => undef;
+has qrcode_uuid             => undef;
 has qrcode_count            => 0;
 has qrcode_count_max        => 10;
 has media_size_max          => sub{20 * 1024 * 1024}; #运行上传的最大文件大小
@@ -234,7 +236,7 @@ sub new {
     });
     $self->on(state_change=>sub{
         my $self = shift;
-        $self->save_state();
+        $self->save_state(@_);
     });
     $self->on(qrcode_expire=>sub{
         my($self) = @_;

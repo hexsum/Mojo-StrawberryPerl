@@ -150,7 +150,8 @@ sub _parse_sync_data {
         return;
     }
     elsif($json->{BaseResponse}{Ret} !=0){
-        $self->warn("收到无法识别消息，已将其忽略");
+        $self->warn("收到无法识别消息代码[$json->{BaseResponse}{Ret}]，已将其忽略");
+        $self->emit(unknown_retcode=>$json->{BaseResponse}{Ret});
         return;
     }
     $self->sync_key($json->{SyncKey}) if $json->{SyncKey}{Count}!=0;
@@ -278,7 +279,15 @@ sub _parse_sync_data {
             elsif($e->{MsgType} == 10002){#撤回消息
                 $msg->{format} = "revoke";
             }
-            elsif($e->{MsgType} == 49) {#应用分享
+            elsif($e->{MsgType} == 49 and $e->{AppMsgType} == 6) {#文件分享
+                $msg->{format} = "media";
+                $msg->{media_type} = "file";
+                $msg->{media_code} = $e->{AppMsgType};
+                $msg->{media_id} = $e->{MediaId} . ":" . $e->{AppMsgType};
+                $msg->{media_name} = $e->{FileName};
+                $msg->{media_size} = $e->{FileSize};
+            }
+            elsif($e->{MsgType} == 49 and $e->{AppMsgType} == 5) {#应用分享
                 $msg->{format} = "app";
                 $msg->{app_title} = $e->{FileName};
                 $msg->{app_url}   = $e->{Url};
@@ -351,6 +360,7 @@ sub _parse_sync_data {
                 $msg->{content} = '[视频]' if $msg->{media_type} eq "video";
                 $msg->{content} = '[小视频]' if $msg->{media_type} eq "microvideo";
                 $msg->{content} = '[表情]' if $msg->{media_type} eq "emoticon";
+                $msg->{content} = '[文件]' if $msg->{media_type} eq "file";
             }
             elsif(defined $msg->{content}){
                 eval{$msg->{content} = Mojo::Util::html_unescape($msg->{content});};

@@ -1,50 +1,46 @@
-package Mojo::Webqq::Plugin::GCM;
-our $AUTHOR = 'sjdy521@163.com';
+package Mojo::Weixin::Plugin::MiPush;
+
+our $AUTHOR = 'heipidage';
 our $SITE = 'http://www.coolapk.com/apk/com.swjtu.gcmformojo';
-our $DESC = '接收消息通过谷歌提供的GCM接口发送到android手机';
+our $DESC = '接收消息通过小米推送接口发送到android手机';
 our $PRIORITY = 97;
 use List::Util qw(first);
 sub call {
     my $client = shift;
     my $data  = shift;
     $client->load("UploadQRcode") if !$client->is_load_plugin('UploadQRcode');
-    my $api_url = $data->{api_url} // 'https://gcm-http.googleapis.com/gcm/send';
-    my $api_key = $data->{api_key} or $client->die("[".__PACKAGE__."]必须指定api_key");
-    my $collapse_key = $data->{collapse_key};
-    my $registration_ids = $data->{registration_ids} // [];
-    if(ref $registration_ids ne 'ARRAY' or @{$registration_ids} == 0){
+    my $api_url = $data->{api_url} // 'https://api.xmpush.xiaomi.com/v2/message/regid';
+   	my $api_key = 'hdtYlfMarG6GEObzPg+JNg==';
+	  my $pkgname = 'com.swjtu.gcmformojo';
+	  my $registration_id = $data->{registration_ids} // [];
+    if(ref $registration_id ne 'ARRAY' or @{$registration_id} == 0){
         $client->die("[".__PACKAGE__."]registration_ids无效");
     }
+	
+	
     $client->on(receive_message=>sub{
         my($client,$msg) = @_;
-        my $type  = 'Mojo-Webqq';
+        my $type  = 'Mojo-Weixin';
         my $title;
         my $message;
         my $msgId;
         my $senderType;
         my $isAt = 0;
+		
         if($msg->is_at) {
         $isAt=1;
         }
         if($msg->type eq 'friend_message'){
+	    return if $data->{is_ban_official} and $msg->sender->category eq '公众号';
             $msgId = $msg->sender->id;
             $title = $msg->sender->displayname;
             $message = $msg->content;
             $senderType = '1';
         }
         elsif($msg->type eq 'group_message'){
-            if(!$isAt){
-                if(ref $data->{allow_group_member} eq "ARRAY"){
-                    my $id1 = $msg->sender->displayname . "|" . $msg->group->displayname;
-                    my $id2 = $msg->sender->uid . "|" . $msg->group->displayname;
-                    my $id3 = $msg->sender->displayname . "|" . $msg->group->uid;
-                    my $id4 = $msg->sender->uid . "|" . $msg->group->uid;
-                    return if !first {$id1 eq $_ or $id2 eq $_ or $id3 eq $_ or $id4 eq $_} @{$data->{allow_group_member}};
-                }
-                else{
-                    return if ref $data->{ban_group}  eq "ARRAY" and @{$data->{ban_group}} and first {($_=~/^\d+$/)?$msg->group->uid eq $_:$msg->group->displayname eq $_} @{$data->{ban_group}};
-                    return if ref $data->{allow_group}  eq "ARRAY" and  @{$data->{allow_group}} and !first {($_=~/^\d+$/)?$msg->group->uid eq $_:$msg->group->displayname eq $_} @{$data->{allow_group}};
-                }
+         if(!$isAt)  {
+            return if ref $data->{ban_group}  eq "ARRAY" and @{$data->{ban_group}} and first {$_=~/^\d+$/?$msg->group->uid eq $_:$msg->group->displayname eq $_} @{$data->{ban_group}};
+            return if ref $data->{allow_group}  eq "ARRAY" and  @{$data->{allow_group}} and !first {$_=~/^\d+$/?$msg->group->uid eq $_:$msg->group->displayname eq $_} @{$data->{allow_group}};
             }
             $msgId = $msg->group->id;
             $title = $msg->group->displayname;
@@ -63,33 +59,38 @@ sub call {
             
         }
         return if !$title or !$message;
-        $client->http_post($api_url, 
-            {'Authorization'=>"key=$api_key",json=>1},
-            json=>{
-                registration_ids=> $registration_ids,
-                $collapse_key?(collapse_key=> $collapse_key):(),
-                priority=> $data->{priority} // 'high',
-                data=>{isAt=>$isAt,type=>$type,title=>$title,message=>$message,msgId=>$msgId,senderType=>$senderType},
+		
+		$client->http_post($api_url, 
+			{'Authorization'=>"key=$api_key",
+			  json=>1
+			},
+            form=>{
+                pass_through => 1,
+                registration_id => $registration_id,
+                restricted_package_namee => $pkgname,
+                payload=>$client->to_json({isAt=>$isAt,type=>$type,title=>$title,message=>$message,msgId=>$msgId,senderType=>$senderType}),
             },
             sub{
-                #"{"multicast_id":9016211065189210367,"success":1,"failure":0,"canonical_ids":0,"results":[{"message_id":"0:1484103730761325%9b9e6c13f9fd7ecd"}]}"
                 my $json = shift;
                 if(not defined $json){
-                    $client->debug("[".__PACKAGE__."]GCM消息推送失败: 返回结果异常");
+                    $client->debug("[".__PACKAGE__."]小米消息推送失败: 返回结果异常");
                     return;
                 }
                 else{
-                    $client->debug("[".__PACKAGE__."]GCM消息推送完成：$json->{multicast_id}/$json->{success}/$json->{failure}");
+                    $client->debug("[".__PACKAGE__."]小米消息推送状态：$json->{error}");
                 }
             }
-        );
-    });
+	
+	
+ 	);
 
-    $client->on(all_event => sub{
+   }); 
+
+	$client->on(all_event => sub{
         my($client,$event,@args) =@_;
         my $type = 'Mojo-Sys';
         my $message;
-        my $msgId = 1;
+        my $msgId = 2;
         my $title;
         if($event eq 'login'){
             $message = "登录成功";
@@ -100,33 +101,34 @@ sub call {
             $title = "扫描二维码事件";
         }
         elsif($event eq 'stop'){
-            $message = "Mojo-Webqq已停止";
+            $message = "Mojo-Weixin已停止";
             $title = "停止事件";
         }
         else{return}
+
         $client->http_post($api_url,
             {   'Authorization'=>"key=$api_key",
-                json=>1,
                 blocking=>1,
+		json=>1,
                 ua_connect_timeout=>5,
                 ua_request_timeout=>5,
                 ua_inactivity_timeout=>5,
                 ua_retry_times=>1
             },
-            json=>{
-                registration_ids=> $registration_ids,
-                $collapse_key?(collapse_key=> $collapse_key):(),
-                priority=> $data->{priority} // 'high',
-                data=>{type=>$type,title=>$title,message=>$message,msgId=>$msgId},
+            form=>{
+				pass_through => 1,
+                registration_id => $registration_id,
+                restricted_package_namee => $pkgname,
+                payload=>$client->to_json({type=>$type,title=>$title,message=>$message,msgId=>$msgId}),
             },
             sub{
                 my $json = shift;
                 if(not defined $json){
-                    $client->debug("[".__PACKAGE__."]GCM消息推送失败: 返回结果异常");
+                    $client->debug("[".__PACKAGE__."]小米消息推送失败: 返回结果异常");
                     return;
                 }
                 else{
-                    $client->debug("[".__PACKAGE__."]GCM消息推送完成：$json->{multicast_id}/$json->{success}/$json->{failure}");
+                    $client->debug("[".__PACKAGE__."]小米消息推送状态：$json->{error}");
                 }
             }
         ); 

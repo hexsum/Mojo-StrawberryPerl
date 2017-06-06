@@ -26,12 +26,12 @@ sub call{
     $client->on(receive_message=>sub{
         my($client,$msg) = @_;
         return if not $msg->allow_plugin;
-        return if $msg->type !~ /^message|group_message|sess_message$/;
+        return if $msg->type !~ /^friend_message|group_message|sess_message$/;
         return if exists $ban{$msg->sender->id};
         my $sender_nick = $msg->sender->displayname;
         my $user_nick = $msg->receiver->displayname;
         return if $is_need_at and $msg->type eq "group_message" and !$msg->is_at;
-        if(ref $data->{keyword} eq "ARRAY"){
+        if(!$is_need_at and ref $data->{keyword} eq "ARRAY"){
             return if not first { $msg->content =~ /\Q$_\E/} @{$data->{keyword}};
         }
         if($msg->type eq 'group_message'){
