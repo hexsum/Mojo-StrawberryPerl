@@ -12,8 +12,8 @@ http://share-10066126.cos.myqcloud.com/Mojo-StrawberryPerl-20170606.rar
 3、如存在有效Cookie则无需扫码
 
 【发消息API】
-QQ发好友：http://127.0.0.1:5000/openqq/send_friend_message?uid=好友QQ号码&content=消息内容
-QQ发群：http://127.0.0.1:5000/openqq/send_group_message?uid=群号码&content=消息内容
+QQ发好友：http://127.0.0.1:5000/openqq/send_friend_message?id=好友QQ号码&content=消息内容
+QQ发群：http://127.0.0.1:5000/openqq/send_group_message?id=群号码&content=消息内容
 微信发好友：http://127.0.0.1:3000/openwx/send_friend_message?displayname=好友显示名称&content=消息内容
 微信发群：http://127.0.0.1:3000/openwx/send_group_message?displayname=群名称&content=消息内容
 
