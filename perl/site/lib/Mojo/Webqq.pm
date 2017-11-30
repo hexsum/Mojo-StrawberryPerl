@@ -1,7 +1,7 @@
 package Mojo::Webqq;
 use strict;
 use Carp ();
-$Mojo::Webqq::VERSION = "2.1.2";
+$Mojo::Webqq::VERSION = "2.1.4";
 use Mojo::Webqq::Base 'Mojo::EventEmitter';
 use Mojo::Webqq::Log;
 use Mojo::Webqq::Cache;
@@ -26,11 +26,19 @@ has log_encoding        => undef;      #utf8|gbk|...
 has log_head            => undef;
 has log_unicode         => 0;
 has log_console         => 1;
+has send_interval       => 3;           #全局发送消息间隔时间
 has check_account       => 0;           #是否检查预设账号与实际登录账号是否匹配
 has disable_color       => 0;           #是否禁用终端打印颜色
 has ignore_retcode      => sub{[0,1202,100100]}; #对发送消息返回这些状态码不认为发送失败，不重试
 has ignore_poll_http_code => sub{[504,502]}; #忽略接收消息请求返回的502/504状态码，因为并不影响消息接收，以免引起恐慌
 has ignore_unknown_id   => 1; #其他设备上自己发送的消息，在webqq上会以接受消息的形式再次接收到，id还未知,是否忽略掉这种消息
+
+has default_send_real_comp_sign => 0; #设为真值则不对发送出的<>进行转化。
+# 然而这样便只能送出&lt;&gt;。
+
+has group_member_card_cut_length => 21; #群名片截取长度
+has group_member_card_ext_only => 0; #群名片信息是否只从扩展接口中获取，这样能够获取到完整的群名片，但并不是100%可靠
+has group_member_use_fullcard => 0; #使用完整的群名片。
 
 #原始信息中包含id/name/card
 #扩展信息中包含uid/name/card
@@ -51,7 +59,7 @@ has is_update_discuss       => 1;                            #是否定期更新
 has update_interval         => 600;                          #定期更新的时间间隔
 
 has encrypt_method      => "perl";     #perl|js
-has tmpdir              => sub {$ENV{MOJO_WEIXIN_TMPDIR} || File::Spec->tmpdir();};
+has tmpdir              => sub {$ENV{MOJO_WEBQQ_TMPDIR} || File::Spec->tmpdir();};
 has pic_dir             => sub {$_[0]->tmpdir};
 has cookie_path         => sub {File::Spec->catfile($_[0]->tmpdir,join('','mojo_webqq_cookie_',$_[0]->account || 'default','.dat'))};
 has verifycode_path     => sub {File::Spec->catfile($_[0]->tmpdir,join('','mojo_webqq_verifycode_',$_[0]->account || 'default','.jpg'))};
@@ -61,6 +69,7 @@ has state_path          => sub {File::Spec->catfile($_[0]->tmpdir,join('','mojo_
 has ioloop              => sub {Mojo::IOLoop->singleton};
 has keep_cookie         => 1;
 has msg_ttl             => 3;
+has controller_pid      => sub{$ENV{MOJO_WEBQQ_CONTROLLER_PID}};
 
 has version => $Mojo::Webqq::VERSION;
 has user    => sub {+{}};
@@ -247,11 +256,15 @@ sub new {
         $self->error(Carp::longmess($err));
     });
     $self->check_pid();
+    $self->check_controller(1);
     $self->load_cookie();
     $self->save_state();
     $SIG{CHLD} = 'IGNORE';
     $SIG{INT} = $SIG{TERM} = $SIG{HUP} = sub{
-        return if $^O ne 'MSWin32' and $_[0] eq 'INT' and !-t;
+        if($^O ne 'MSWin32' and $_[0] eq 'INT' and !-t){
+            $self->warn("后台程序捕获到信号[$_[0]]，已将其忽略，程序继续运行");
+            return;
+        }
         $self->info("捕获到停止信号[$_[0]]，准备停止...");
         $self->stop();
     };
@@ -279,6 +292,10 @@ sub new {
     });
     $self->on(before_send_message=>sub{
         my($self,$msg) = @_;
+        if ($msg->send_real_comp_sign
+            // $self->default_send_real_comp_sign) {
+            return;
+        }
         my $content = $msg->content;
         $content =~s/>/＞/g;
         $content =~s/</＜/g;
@@ -305,6 +322,7 @@ sub new {
         my($self,$friend)=@_;
         $self->update_friend_ext(is_blocking=>1);
     });
+    $Mojo::Webqq::Message::SEND_INTERVAL = $self->send_interval;
     $Mojo::Webqq::_CLIENT = $self;
     $self;
 }

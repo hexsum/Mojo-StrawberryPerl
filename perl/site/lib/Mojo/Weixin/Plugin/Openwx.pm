@@ -16,6 +16,7 @@ sub call{
     $data->{post_event} = 1 if not defined $data->{post_event};
     $data->{post_event_list} = [qw(login stop state_change input_qrcode new_group new_friend new_group_member lose_group lose_friend lose_group_member friend_request)] 
         if ref $data->{post_event_list} ne 'ARRAY'; 
+    $data->{post_stdout} = 0 if not defined $data->{post_stdout};
 
     if(defined $data->{poll_api}){
         $client->on('_mojo_weixin_plugin_openwx_poll_over' => sub{
@@ -34,6 +35,7 @@ sub call{
             $post_json->{post_type} = "event";
             $post_json->{event} = $event;
             $post_json->{params} = [@args];
+            $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             my($data,$ua,$tx) = $client->http_post($data->{post_api},{ua_connect_timeout=>5,ua_request_timeout=>5,ua_inactivity_timeout=>5,ua_retry_times=>1},json=>$post_json);
             if($tx->success){
                 $client->debug("插件[".__PACKAGE__ ."]事件[".$event . "](@args)上报成功");
@@ -54,6 +56,7 @@ sub call{
             $post_json->{event} = $event;
             $post_json->{params} = [$qrcode_path,$qrcode_data];
             push @{ $post_json->{params} },$client->qrcode_upload_url if defined $client->qrcode_upload_url;
+            $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             my($data,$ua,$tx) = $client->http_post($data->{post_api},json=>$post_json);
             if($tx->success){
                 $client->debug("插件[".__PACKAGE__ ."]事件[".$event . "]上报成功");
@@ -73,6 +76,7 @@ sub call{
                 $post_json->{params} = [$args[0]->to_json_hash(0)];
             }
             $check_event_list->append($post_json);
+            $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             $client->http_post($data->{post_api},json=>$post_json,sub{
                 my($data,$ua,$tx) = @_;
                 if($tx->success){
@@ -91,6 +95,7 @@ sub call{
                 params    => [$object->to_json_hash(0),$property,$old,$new],
             };
             $check_event_list->append($post_json);
+            $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             $client->http_post($data->{post_api},json=>$post_json,sub{
                 my($data,$ua,$tx) = @_;
                 if($tx->success){
@@ -110,6 +115,7 @@ sub call{
                 params    => [$id,$displayname,$verify,$ticket],
             };
             $check_event_list->append($post_json);
+            $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             $client->http_post($data->{post_api},json=>$post_json,sub{
                 my($data,$ua,$tx) = @_;
                 if($tx->success){
@@ -127,6 +133,7 @@ sub call{
                 event     => $event,
                 params    => [$event eq 'update_user'?$ref->to_json_hash():map {$_->to_json_hash()} @{$ref}], 
             };
+            $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             $client->http_post($data->{post_api},json=>$post_json,sub{
                 my($data,$ua,$tx) = @_;
                 if($tx->success){
@@ -145,6 +152,7 @@ sub call{
         delete $post_json->{media_data} if ($post_json->{format} eq "media" and ! $data->{post_media_data});
         $post_json->{post_type} = "receive_message";
         $check_event_list->append($post_json);
+        $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
         $client->http_post($data->{post_api},json=>$post_json,sub{
             my($data,$ua,$tx) = @_;
             if($tx->success){
@@ -182,6 +190,7 @@ sub call{
         delete $post_json->{media_data} if ($post_json->{format} eq "media" and ! $data->{post_media_data});
         $post_json->{post_type} = "send_message";
         $check_event_list->append($post_json);
+        $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
         $client->http_post($data->{post_api},json=>$post_json,sub{
             my($data,$ua,$tx) = @_;
             if($tx->success){
@@ -269,6 +278,7 @@ sub call{
     get '/openwx/get_user_info'     => sub {$_[0]->safe_render(json=>$client->user->to_json_hash());};
     get '/openwx/get_friend_info'   => sub {$_[0]->safe_render(json=>[map {$_->to_json_hash()} @{$client->friend}]); };
     get '/openwx/get_group_info'    => sub {$_[0]->safe_render(json=>[map {$_->to_json_hash()} @{$client->group}]); };
+    get '/openwx/get_group_basic_info' =>  sub {$_[0]->safe_render(json=>[map {delete $_->{member};$_} map {$_->to_json_hash()} @{$client->group}]); };
     any [qw(GET POST)] => '/openwx/check_event'          => sub{
         my $c = shift;
         $c->render_later;
@@ -311,6 +321,22 @@ sub call{
             $c->safe_render(json=>{code=>100,status=>"object not found"});
         }
     };
+    any [qw(GET POST)] => 'openwx/revoke_message' => sub{
+        my $c = shift;
+        my $p = $c->params;
+        if(defined $p->{id}){
+            my $ret = $client->revoke_message($p->{id});
+            if($ret){
+                $c->safe_render(json=>{id=>$p->{id},code=>0,status=>'revoke success'});
+            }
+            else{
+                $c->safe_render(json=>{id=>$p->{id},code=>0,status=>'revoke failure'});
+            }
+        }
+        else{
+            $c->safe_render(json=>{id=>$p->{id},code=>-1,status=>'msg id not found'});
+        }
+    };
     any [qw(GET POST)] => '/openwx/send_friend_message'         => sub{
         my $c = shift;
         my $p = $c->params;
@@ -329,25 +355,39 @@ sub call{
         }
         my $object = $client->search_friend(id=>$p->{id},account=>$p->{account},displayname=>$p->{displayname},markname=>$p->{markname});
         if(defined $object){
-            $c->render_later;
-            $client->send_message($object,$p->{content},sub{
-                my $msg= $_[1];
-                $msg->cb(sub{
-                    my($client,$msg)=@_;
-                    $c->safe_render(json=>{id=>$msg->id,code=>$msg->code,status=>$msg->info});
-                });
-                $msg->from("api");
-            }) if defined $p->{content};
-            if(defined $p->{media_data} or defined $p->{media_path} or defined $p->{media_id}){
-                $c->inactivity_timeout(120);
-                $client->send_media($object,{map {/media_/?($_=>$p->{$_}):()} keys %$p},sub{
-                    my $msg= $_[1];
-                    $msg->cb(sub{
-                        my($client,$msg)=@_;
-                        $c->safe_render(json=>{id=>$msg->id,media_id=>$msg->is_success?$msg->media_id:"",code=>$msg->code,status=>$msg->info});
+            if(defined $p->{content}){
+                if($p->{async}){
+                    $client->send_message($object,$p->{content},sub{$_[1]->from("api")}); 
+                    $c->safe_render(json=>{code=>0,status=>"request already in execution"});
+                }
+                else{
+                    $c->render_later;
+                    $client->send_message($object,$p->{content},sub{
+                        my $msg= $_[1];
+                        $msg->cb(sub{
+                            my($client,$msg)=@_;
+                            $c->safe_render(json=>{id=>$msg->id,code=>$msg->code,status=>$msg->info});
+                        });
+                        $msg->from("api");
                     });
-                    $msg->from("api");
-                });
+                }
+            }
+            if(defined $p->{media_data} or defined $p->{media_path} or defined $p->{media_id}){
+                if($p->{async}){
+                    $client->send_media($object,{map {/media_/?($_=>$p->{$_}):()} keys %$p},sub{$_[1]->from("api")});
+                    $c->safe_render(json=>{code=>0,status=>"request already in execution"});
+                }
+                else{
+                    $c->inactivity_timeout(120);
+                    $client->send_media($object,{map {/media_/?($_=>$p->{$_}):()} keys %$p},sub{
+                        my $msg= $_[1];
+                        $msg->cb(sub{
+                            my($client,$msg)=@_;
+                            $c->safe_render(json=>{id=>$msg->id,media_id=>$msg->is_success?$msg->media_id:"",code=>$msg->code,status=>$msg->info});
+                        });
+                        $msg->from("api");
+                    });
+                }
             }
         }
         else{$c->safe_render(json=>{id=>undef,code=>100,status=>"object not found"});}
@@ -357,25 +397,39 @@ sub call{
         my $p = $c->params;
         my $object = $client->search_group(id=>$p->{id},displayname=>$p->{displayname});
         if(defined $object){
-            $c->render_later;
-            $client->send_message($object,$p->{content},sub{
-                my $msg= $_[1];
-                $msg->cb(sub{
-                    my($client,$msg)=@_;
-                    $c->safe_render(json=>{id=>$msg->id,code=>$msg->code,status=>$msg->info});
-                });
-                $msg->from("api");
-            }) if defined $p->{content};
-            if(defined $p->{media_data} or defined $p->{media_path} or defined $p->{media_id}){
-                $c->inactivity_timeout(120);
-                $client->send_media($object,{map {/media_/?($_=>$p->{$_}):()} keys %$p},sub{
-                    my $msg= $_[1];
-                    $msg->cb(sub{
-                        my($client,$msg)=@_;
-                        $c->safe_render(json=>{id=>$msg->id,media_id=>$msg->is_success?$msg->media_id:"",code=>$msg->code,status=>$msg->info});
+            if(defined $p->{content}){
+                if($p->{async}){
+                    $client->send_message($object,$p->{content},sub{$_[1]->from("api")});
+                    $c->safe_render(json=>{code=>0,status=>"request already in execution"});   
+                }
+                else{
+                    $c->render_later;
+                    $client->send_message($object,$p->{content},sub{
+                        my $msg= $_[1];
+                        $msg->cb(sub{
+                            my($client,$msg)=@_;
+                            $c->safe_render(json=>{id=>$msg->id,code=>$msg->code,status=>$msg->info});
+                        });
+                        $msg->from("api");
                     });
-                    $msg->from("api");
-                });
+                }
+            }
+            if(defined $p->{media_data} or defined $p->{media_path} or defined $p->{media_id}){
+                if($p->{async}){
+                    $client->send_media($object,{map {/media_/?($_=>$p->{$_}):()} keys %$p},sub{$_[1]->from("api")});
+                    $c->safe_render(json=>{code=>0,status=>"request already in execution"});
+                }
+                else{
+                    $c->inactivity_timeout(120);
+                    $client->send_media($object,{map {/media_/?($_=>$p->{$_}):()} keys %$p},sub{
+                        my $msg= $_[1];
+                        $msg->cb(sub{
+                            my($client,$msg)=@_;
+                            $c->safe_render(json=>{id=>$msg->id,media_id=>$msg->is_success?$msg->media_id:"",code=>$msg->code,status=>$msg->info});
+                        });
+                        $msg->from("api");
+                    });
+                }
             }
         }
         else{$c->safe_render(json=>{id=>undef,code=>100,status=>"object not found"});}

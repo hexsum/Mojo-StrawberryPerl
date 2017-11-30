@@ -1,5 +1,5 @@
 package Mojo::Weixin;
-our $VERSION = '1.3.4';
+our $VERSION = '1.3.8';
 use Mojo::Weixin::Base 'Mojo::EventEmitter';
 use Mojo::IOLoop;
 use Mojo::Weixin::Log;
@@ -20,6 +20,7 @@ has log_console         => 1;
 has log_unicode         => 0;
 has download_media      => 1;
 has disable_color       => 0;           #是否禁用终端打印颜色
+has send_interval       => 3;           #全局发送消息间隔
 
 has is_init_group_member => 0;
 has is_update_group_member => 1;
@@ -37,12 +38,13 @@ has ioloop              => sub {Mojo::IOLoop->singleton};
 has keep_cookie         => 1;
 has fix_media_loop      => 1;
 has synccheck_interval  => 1;
-has synccheck_delay     => 10;
+has synccheck_delay     => 1;
 has _synccheck_interval => sub{ $_[0]->synccheck_interval};
 has sync_interval       => 0;
 has emoji_to_text       => 1;
 has stop_with_mobile    => 0;
 has http_max_message_size  => undef; #16777216;
+has controller_pid      => sub{$ENV{MOJO_WEIXIN_CONTROLLER_PID}};
 
 has user    => sub {+{}};
 has friend  => sub {[]};
@@ -77,6 +79,7 @@ has qrcode_count            => 0;
 has qrcode_count_max        => 10;
 has media_size_max          => sub{20 * 1024 * 1024}; #运行上传的最大文件大小
 has media_chunk_size        => sub{512 * 1024};#chunk upload 每个分片的大小
+has http_agent              => 'Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/37.0.2062';
 has ua                      => sub {
     my $self = $_[0];
     #local $ENV{MOJO_USERAGENT_DEBUG} = $_[0]->ua_debug;
@@ -84,9 +87,7 @@ has ua                      => sub {
     require Mojo::UserAgent;
     require Mojo::UserAgent::Proxy;
     require Storable if $_[0]->keep_cookie;
-    my $transactor = Mojo::UserAgent::Transactor->new(
-        name =>  'Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/37.0.2062'
-    );
+    my $transactor = Mojo::UserAgent::Transactor->new(name =>  $self->http_agent);
     my $default_form_generator = $transactor->generators->{form};
     $transactor->add_generator(form => sub{
         #my ($self, $tx, $form, %options) = @_;
@@ -221,11 +222,15 @@ sub new {
         $self->error(Carp::longmess($err));
     });
     $self->check_pid();
+    $self->check_controller(1);
     $self->load_cookie();
     $self->save_state();
     $SIG{CHLD} = 'IGNORE';
     $SIG{INT}  = $SIG{TERM} = $SIG{HUP} = sub{
-        return if $^O ne 'MSWin32' and $_[0] eq 'INT' and !-t;
+        if($^O ne 'MSWin32' and $_[0] eq 'INT' and !-t){
+            $self->warn("后台程序捕获到信号[$_[0]]，已将其忽略，程序继续运行");
+            return;
+        }
         $self->info("捕获到停止信号[$_[0]]，准备停止...");
         $self->stop();
     };
@@ -257,6 +262,12 @@ sub new {
             $msg->reply(" ") if $self->fix_media_loop == 2;
         });
     }
+    $self->on(update_friend=>sub{
+        my $self = shift;
+        my $filehelper = Mojo::Weixin::Friend->new(name=>"文件传输助手",id=>"filehelper");
+        $self->add_friend($filehelper) if not $self->search_friend(id=>"filehelper");
+    });
+    $Mojo::Weixin::Message::SEND_INTERVAL = $self->send_interval;
     $Mojo::Weixin::_CLIENT = $self;
     $self;
 }

@@ -29,6 +29,7 @@ use Mojo::Webqq::Model::Remote::_set_group_member_card;
 use Mojo::Webqq::Model::Remote::_shutup_group_member;
 use Mojo::Webqq::Model::Remote::_qiandao;
 
+use Encode ();
 sub hash33{
     use integer;
     my $self = shift;
@@ -472,11 +473,11 @@ sub update_group_member_ext {
             my $unique_sub = sub{
                 my $name = $_[0]->{name} // "";
                 my $card = $_[0]->{card} // "";
-                if($self->group_member_identify_callback eq 'CODE'){
+                if(ref $self->group_member_identify_callback eq 'CODE'){
                     return $self->group_member_identify_callback->($name,$card);
                 }
                 else{
-                    return $name . $self->encode("utf8",substr($self->decode("utf8",$card),0,4));
+                    return $self->group_member_card_ext_only? $name: $name . $card;
                 }
             };
             my(undef,$mext) = $self->array_unique($group_info_ext->{member},$unique_sub,$group->name . " member_ext");

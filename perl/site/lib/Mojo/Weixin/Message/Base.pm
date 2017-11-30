@@ -9,7 +9,7 @@ sub client {
 }
 sub is_success{
     my $self = shift;
-    return $self->code == 0?1:0;
+    return (defined $self->code and $self->code == 0)?1:0;
 }
 sub send_status{
     my $self = shift;
@@ -20,6 +20,10 @@ sub _parse_send_status_data {
     my $self = shift;
     my $json = shift;
     if(defined $json){
+        if($json->{MsgID}){
+            my $id = $json->{MsgID} . ":" . ($self->type eq 'group_message'?$self->group_id : $self->receiver_id);
+            $self->{id} = $id;
+        }
         if($json->{BaseResponse}{Ret}!=0){
             $self->send_status(
                         code=>$json->{BaseResponse}{Ret},
@@ -47,6 +51,7 @@ sub to_json_hash{
             $json->{sender_uid} = $self->sender->uid;
             $json->{sender_name} = $self->sender->name;
             $json->{sender_markname} = $self->sender->markname;
+            $json->{sender_category} = $self->sender->category if $self->sender->type eq 'friend';
         }
         elsif($key eq "receiver"){
             next if $self->type eq 'group_message' and $self->class eq 'send';
@@ -75,6 +80,7 @@ sub to_json_hash{
 
 sub is_at{
     my $self = shift;
+    return if not $self->content;
     my $object;
     my $displayname;
     if($self->class eq "recv"){
@@ -91,6 +97,7 @@ sub is_at{
             $displayname = $object->displayname;
         }
     }
+    return if not $displayname;
     return $self->content =~/\@\Q$displayname\E( |"\xe2\x80\x85"|)/;
 }
 

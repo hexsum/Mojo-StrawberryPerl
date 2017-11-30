@@ -107,6 +107,50 @@ sub encode_json{
         return $r;
     }
 }
+
+sub safe_truncate {
+    my $self = shift;
+    my $input = shift;
+    return $input if not defined $input;
+    my $truncate_length = shift // 21;
+
+    return $input if (length($input) < $truncate_length);
+
+    my @bytes = unpack('C*', $input);
+    my $i = 0;
+    while (1)
+    {
+        my $utf8_bytes;
+        if (($bytes[$i] & 0x80) == 0) {
+            $utf8_bytes = 1;
+        }
+        elsif (($bytes[$i] & 0xc0) != 0 and ($bytes[$i] & 0x20) == 0) {
+            $utf8_bytes = 2;
+        }
+        elsif (($bytes[$i] & 0xe0) != 0 and ($bytes[$i] & 0x10) == 0) {
+            $utf8_bytes = 3;
+        }
+        elsif (($bytes[$i] & 0xf0) != 0 and ($bytes[$i] & 0x08) == 0) {
+            $utf8_bytes = 4;
+        }
+        else {
+            $utf8_bytes = 1;
+        }
+
+        if ($i + $utf8_bytes > $truncate_length) {
+            last;
+        }
+        elsif ($i + $utf8_bytes == $truncate_length) {
+            $i = $truncate_length;
+            last;
+        }
+        else {
+            $i += $utf8_bytes;
+        }
+    }
+    return substr($input, 0, $i);
+}
+
 sub truncate {
     my $self = shift;
     my $out_and_err = shift || '';
@@ -325,5 +369,12 @@ sub print {
     $self->log->info({time=>'',level=>'',}, join defined $,?$,:'',@_);
     $self;
 }
+sub stdout_line {
+    my $self = shift;
+    my $data = $_[0];
+    $data=~s/[\r\n]+$//s;
+    print $data . "\n";
+    $self;
+}   
 
 1;
