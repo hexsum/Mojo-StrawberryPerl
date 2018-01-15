@@ -56,6 +56,7 @@ sub ready{
     ){
         $self->call($_);
     }
+    $self->state('loading');
     $self->emit("after_load_plugin");
     $self->login() if $self->login_state ne 'success';
     $self->relogin() if $self->get_model_status() == 0;
@@ -238,6 +239,7 @@ sub login {
         $self->info("帐号(" .( $self->uid // $self->account) . ")登录成功");
         $self->login_type eq "qrlogin"?$self->clean_qrcode():$self->clean_verifycode();
         $self->state('updating');
+        $self->model_ext_authorize();
         $self->update_user;
         $self->update_friend(is_blocking=>1,is_update_friend_ext=>1) if $self->is_init_friend;
         $self->update_group(is_blocking=>1,is_update_group_ext=>1,is_update_group_member_ext=>0,is_update_group_member=>0)  if $self->is_init_group;
@@ -480,4 +482,16 @@ sub check_controller {
         }
     }
 }
+
+sub check_notice {
+    my $self = shift;
+    return if not $self->is_fetch_notice;
+    $self->info("获取最新公告信息...");
+    my $notice  = $self->http_get($self->notice_api);
+    if($notice){
+        $self->info("-" x 40);
+        $self->info({content_color=>'green'},$notice);
+        $self->info("-" x 40);
+    }
+}   
 1;

@@ -1,13 +1,13 @@
 package Mojo::Webqq;
 use strict;
 use Carp ();
-$Mojo::Webqq::VERSION = "2.1.4";
+$Mojo::Webqq::VERSION = "2.1.6";
 use Mojo::Webqq::Base 'Mojo::EventEmitter';
 use Mojo::Webqq::Log;
 use Mojo::Webqq::Cache;
 use Time::HiRes qw(gettimeofday);
 use File::Spec ();
-use base qw(Mojo::Webqq::Model Mojo::Webqq::Client Mojo::Webqq::Plugin Mojo::Webqq::Request Mojo::Webqq::Util);
+use base qw(Mojo::Webqq::Model Mojo::Webqq::Client Mojo::Webqq::Plugin Mojo::Webqq::Request Mojo::Webqq::Util Mojo::Webqq::Model::Ext);
 
 has account             => sub{ $ENV{MOJO_WEBQQ_ACCUNT} || 'default'};
 has start_time          => time;
@@ -28,10 +28,12 @@ has log_unicode         => 0;
 has log_console         => 1;
 has send_interval       => 3;           #全局发送消息间隔时间
 has check_account       => 0;           #是否检查预设账号与实际登录账号是否匹配
-has disable_color       => 0;           #是否禁用终端打印颜色
-has ignore_retcode      => sub{[0,1202,100100]}; #对发送消息返回这些状态码不认为发送失败，不重试
+has disable_color       => ($^O eq 'MSWin32' ? 1 : 0);           #是否禁用终端打印颜色
+has ignore_send_retcode      => sub{[1202,100100]}; #对发送消息返回这些状态码不认为发送失败，不重试
+has ignore_poll_retcode      => sub{[102,109,110,1202,100012]}; #对接收消息返回这些状态码不认为接收失败，不重新登录
 has ignore_poll_http_code => sub{[504,502]}; #忽略接收消息请求返回的502/504状态码，因为并不影响消息接收，以免引起恐慌
 has ignore_unknown_id   => 1; #其他设备上自己发送的消息，在webqq上会以接受消息的形式再次接收到，id还未知,是否忽略掉这种消息
+has allow_message_sync => 0; #是否允许同步来自其他设备登录账号发送的消息，由于webqq自身发送消息后也会收到服务端重复的消息，且没办法和来自其他设备的消息区分，会导致出现一些不期望的结果，比如某些插件会陷入死循环等，因此默认不开启消息同步，如果你只是用来api发送消息或者irc聊天，则开启此选项，可以同步来自其他设备的消息，体验会更好一些
 
 has default_send_real_comp_sign => 0; #设为真值则不对发送出的<>进行转化。
 # 然而这样便只能送出&lt;&gt;。
@@ -47,6 +49,9 @@ has group_member_use_fullcard => 0; #使用完整的群名片。
 #传递给group_member_identify_callback的参数是群成员的 ($name,$card)
 #默认 group_member_identify_callback 不设置，相当于sub { my($name,$card)=@_; return $name . $card};
 has group_member_identify_callback => undef;
+
+has notice_api => 'https://raw.githubusercontent.com/sjdy521/Mojo-Webqq/master/NOTICE';
+has is_fetch_notice => 1; #是否启动时获取公告
 
 has is_init_friend         => 1;                            #是否在首次登录时初始化好友信息
 has is_init_group          => 1;                            #是否在首次登录时初始化群组信息
@@ -324,6 +329,7 @@ sub new {
     });
     $Mojo::Webqq::Message::SEND_INTERVAL = $self->send_interval;
     $Mojo::Webqq::_CLIENT = $self;
+    $self->check_notice();
     $self;
 }
 
