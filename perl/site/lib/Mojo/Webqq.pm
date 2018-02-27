@@ -1,7 +1,7 @@
 package Mojo::Webqq;
 use strict;
 use Carp ();
-$Mojo::Webqq::VERSION = "2.1.6";
+$Mojo::Webqq::VERSION = "2.1.8";
 use Mojo::Webqq::Base 'Mojo::EventEmitter';
 use Mojo::Webqq::Log;
 use Mojo::Webqq::Cache;
@@ -9,7 +9,7 @@ use Time::HiRes qw(gettimeofday);
 use File::Spec ();
 use base qw(Mojo::Webqq::Model Mojo::Webqq::Client Mojo::Webqq::Plugin Mojo::Webqq::Request Mojo::Webqq::Util Mojo::Webqq::Model::Ext);
 
-has account             => sub{ $ENV{MOJO_WEBQQ_ACCUNT} || 'default'};
+has account             => sub{ $ENV{MOJO_WEBQQ_ACCOUNT} || 'default'};
 has start_time          => time;
 has pwd                 => undef;
 has security            => 0;
@@ -34,6 +34,7 @@ has ignore_poll_retcode      => sub{[102,109,110,1202,100012]}; #对接收消息
 has ignore_poll_http_code => sub{[504,502]}; #忽略接收消息请求返回的502/504状态码，因为并不影响消息接收，以免引起恐慌
 has ignore_unknown_id   => 1; #其他设备上自己发送的消息，在webqq上会以接受消息的形式再次接收到，id还未知,是否忽略掉这种消息
 has allow_message_sync => 0; #是否允许同步来自其他设备登录账号发送的消息，由于webqq自身发送消息后也会收到服务端重复的消息，且没办法和来自其他设备的消息区分，会导致出现一些不期望的结果，比如某些插件会陷入死循环等，因此默认不开启消息同步，如果你只是用来api发送消息或者irc聊天，则开启此选项，可以同步来自其他设备的消息，体验会更好一些
+has json_codec_mode     => 0;  #0表示使用from_json/to_json 1表示使用decode_json/encode_json
 
 has default_send_real_comp_sign => 0; #设为真值则不对发送出的<>进行转化。
 # 然而这样便只能送出&lt;&gt;。
@@ -41,6 +42,7 @@ has default_send_real_comp_sign => 0; #设为真值则不对发送出的<>进行
 has group_member_card_cut_length => 21; #群名片截取长度
 has group_member_card_ext_only => 0; #群名片信息是否只从扩展接口中获取，这样能够获取到完整的群名片，但并不是100%可靠
 has group_member_use_fullcard => 0; #使用完整的群名片。
+has group_member_use_friend_markname => 1; #使用备注名(如果存在)。
 
 #原始信息中包含id/name/card
 #扩展信息中包含uid/name/card
@@ -59,6 +61,8 @@ has is_init_discuss        => 1;                            #是否在首次登�
 
 has is_update_user          => 0;                            #是否定期更新个人信息
 has is_update_group         => 1;                            #是否定期更新群组信息
+has is_update_group_member  => 1;                            #是否定期更新群成员信息
+has is_update_group_member_ext => 0;                         #是否定期更新群成员扩展信息
 has is_update_friend        => 1;                            #是否定期更新好友信息
 has is_update_discuss       => 1;                            #是否定期更新讨论组信息
 has update_interval         => 600;                          #定期更新的时间间隔
@@ -158,9 +162,10 @@ has send_msg_id            => sub {
 has uid                    => undef;
 has clientid               => 53999199;
 has psessionid             => undef;
-has vfwebqq                => undef;
 has ptwebqq                => undef;
 has skey                   => undef;
+has vfwebqq                => undef;
+
 has passwd_sig             => '';
 has verifycode             => undef;
 has pt_verifysession       => undef,
@@ -168,16 +173,13 @@ has ptvfsession            => undef;
 has md5_salt               => undef;
 has cap_cd                 => undef;
 has isRandSalt             => 0;
-has api_check_sig          => undef;
-has g_login_sig            => undef;
-has g_style                => 16;
-has g_mibao_css            => 'm_webqq';
-has g_daid                 => 164;
-has g_appid                => 501004106;
-has g_pt_version           => 10179;
 has rc                     => 1;
+
+has api_check_sig          => undef;
+has pt_login_sig           => undef;
+
 has csrf_token             => undef;
-has model_ext              => 0;
+has model_ext              => undef;
 #{user=>0,friend=>0,friend_ext=>0,group=>0,group_ext=>0,discuss=>0}
 has model_status           => sub {+{}}; 
 
@@ -294,6 +296,10 @@ sub new {
         my($self,$type,$status)=@_;
         $self->model_status->{$type} = $status;
         $self->emit("model_update_fail") if $self->get_model_status == 0;
+    });
+    $self->on(model_update_fail=>sub{
+        my $self = shift;
+        $self->relogin() if $self->login_type eq 'login';
     });
     $self->on(before_send_message=>sub{
         my($self,$msg) = @_;

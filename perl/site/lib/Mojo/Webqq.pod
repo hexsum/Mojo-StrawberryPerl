@@ -23,15 +23,34 @@ Mojo::Webqq - A Webqq Client Framework base on Mojolicious
     #推荐手机安装[QQ安全中心]APP，方便随时掌握自己帐号的情况
     #通过本程序登录QQ之前请先关闭帐号的密保功能
 
+    #初始化一个客户端，采用二维码登录方式
     use Mojo::Webqq;
-
-    #初始化一个客户端对象，设置登录的qq号
     my $client=Mojo::Webqq->new(
         http_debug  =>  0,         #是否打印详细的debug信息
-        log_level   =>  "info"     #日志打印级别，debug|info|msg|warn|error|fatal
+        log_level   =>  "info",    #日志打印级别，debug|info|msg|warn|error|fatal
+        login_type  =>  "qrlogin", #登录方式，qrlogin 表示二维码登录
     );
-    #注意: 腾讯可能已经关闭了帐号密码的登录方式，这种情况下只能使用二维码扫描登录
+
+    #初始化一个客户端，采用账号密码登录方式，需要显式设置账号和密码
+    use Mojo::Webqq;
+    use Digest::MD5 qw(md5_hex);
+    my $client=Mojo::Webqq->new(
+        account     => 123456,      #QQ账号
+        pwd         => md5_hex('你的QQ账号登录密码'),  #登录密码
+        http_debug  =>  0,          #是否打印详细的debug信息
+        log_level   =>  "info",     #日志打印级别，debug|info|msg|warn|error|fatal
+        login_type  =>  "login",    #登录方式，login 表示账号密码登录
+    );
+    
+    #注意: 原生的SmartQQ是不支持账号密码登录的
+    #程序实际上是通过 http://qun.qq.com 页面账号密码登录然后和SmartQQ共享登录状态，从而实现账号密码登录
+    #所以，账号密码的登录方式并不稳定，一旦失败，程序会再次自动尝试使用二维码扫描登录
     #请关闭帐号的密保功能，不支持密保登录
+    #另外，基于账号密码的登录方式，一旦登录所在地发生较大变化，则腾讯服务器可能需要你输入图片验证码
+    #这样就很难实现自动化操作，为了避免这种情况，你需要尽量在pl脚本所在的网络中用浏览器多登录一下 http://qun.qq.com
+    #让腾讯服务器消除登录异常的判断，你可以在服务端搭建ssh隧道，socks5代理，支持SSL转发（CONNECT方法）的http代理等方式
+    #然后浏览器通过服务端代理访问
+    #参考github issue: https://github.com/sjdy521/Mojo-Webqq/issues/183
 
     #客户端加载ShowMsg插件，用于打印发送和接收的消息到终端
     $client->load("ShowMsg");
@@ -415,11 +434,11 @@ Mojo::Webqq - A Webqq Client Framework base on Mojolicious
     disable_color     #默认为0，是否禁用终端彩色打印
     send_interval     #默认为3s，全局发送消息时间间隔，间隔太小会导致消息发送频繁，可能有被封号的风险
     ignore_send_retcode #对发送消息返回这些状态码不认为发送失败不重试,参数是一个数组引用
-                        #设置示例 Mojo::Webqq->new(ignore_retcode=>[1202,100100]);
+                        #设置示例 Mojo::Webqq->new(ignore_send_retcode=>[1202,100100]);
                         #默认值 [1202,100100] 不清楚作用请不要随意设置
 
     ignore_poll_retcode #对接收消息返回这些状态码不认为接收失败，不重新登录，避免频繁掉线
-                        #设置示例 Mojo::Webqq->new(ignore_retcode=>[102,109,110,1202,100012]);
+                        #设置示例 Mojo::Webqq->new(ignore_poll_retcode=>[102,109,110,1202,100012]);
                         #默认值 [102,109,110,1202,100012] 不清楚作用请不要随意设置
 
     ignore_unknown_id #其他设备上自己发送的消息，在webqq上会以接受消息的形式再次接收到
@@ -455,9 +474,13 @@ Mojo::Webqq - A Webqq Client Framework base on Mojolicious
     #如果你完全不关注这些特性，可以关闭定期更新
     is_update_user      #是否定期更新个人信息，默认值 0
     is_update_group     #是否定期更新群组信息，默认值 1
+    is_update_group_member #是否定期更新群成员信息，默认值 1
+    is_update_group_member_ext  #是否定期更新群成员扩展信息，扩展信息包含QQ号，默认值0，即新增成员才会更新
     is_update_friend    #是否定期更新好友信息，默认值 1
     is_update_discuss   #是否定期更新讨论组信息，默认值 1
     update_interval     #定时更新群组、好友、讨论组等信息的时间间隔，默认600秒
+
+    group_member_use_friend_markname #群成员使用好友备注名(如果是好友关系并且备注存在)
 
     is_fetch_notice     #是否获取公告信息，默认值 1
 
@@ -1479,6 +1502,8 @@ QQ群每日签到插件
 
     $client->load("SmartReply",data=>{
         apikey          => '4c53b48522ac4efdfe5dfb4f6149ae51', #可选，参考http://www.tuling123.com/html/doc/apikey.html
+        friend_reply    => 1, #是否针对好友消息智能回复
+        group_reply     => 1, #是否针对群消息智能回复
         allow_group     => ["PERL学习交流"],  #可选，允许插件的群，可以是群名称或群号码
         ban_group       => ["私人群",123456], #可选，禁用该插件的群，可以是群名称或群号码
         ban_user        => ["坏蛋",123456], #可选，禁用该插件的用户，可以是用户的显示名称或qq号码
@@ -1488,8 +1513,8 @@ QQ群每日签到插件
         ban_limit       => 12,  #可选,达到该次数会被列入黑名单不再进行回复
         ban_time        => 1200,#可选，拉入黑名单时间，默认1200秒
         period          => 600, #可选，限制周期，单位 秒
-        is_need_at      => 1,  #默认是1 是否需要艾特才触发回复
-        keyword         => [qw(小灰 小红 小猪)], #触发智能回复的关键字，使用时请设置is_need_at=>0
+        is_need_at      => 1,  #默认是1 是否需要艾特才触发回复 仅针对群消息
+        keyword         => [qw(小灰 小红 小猪)], #触发智能回复的关键字
     });
 
 =head2 Mojo::Webqq::Plugin::Openqq

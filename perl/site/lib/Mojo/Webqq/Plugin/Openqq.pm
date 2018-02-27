@@ -146,7 +146,7 @@ sub call{
                 if($tx->res->headers->content_type =~m#text/json|application/json#){
                     #文本类的返回结果必须是json字符串
                     my $json;
-                    eval{$json = $client->from_json($tx->res->body)};
+                    eval{$json = $client->decode_json($tx->res->body);$client->reform($json)};
                     if($@){$client->warn($@);return}
                     if(defined $json){
                         #暂时先不启用format的属性
@@ -188,7 +188,7 @@ sub call{
                 if($tx->res->headers->content_type =~m#text/json|application/json#){
                     #文本类的返回结果必须是json字符串
                     my $json;
-                    eval{$json = $client->from_json($tx->res->body)};
+                    eval{$json = $client->decode_json($tx->res->body);$client->reform($json)};
                     if($@){$client->warn($@);return}
                     if(defined $json){
                         #{code=>0,reply=>"回复的消息",format=>"text"}
@@ -284,7 +284,7 @@ sub call{
                     my $msg= $_[1];
                     $msg->cb(sub{
                         my($client,$msg)=@_;
-                        $c->safe_render(json=>{id=>$msg->id,code=>$msg->code,status=>$msg->msg});  
+                        $c->safe_render(json=>{id=>$msg->id,code=>$msg->code,status=>$msg->msg,info=>$msg->info});  
                     });
                     $msg->from("api");
                 });
@@ -316,7 +316,7 @@ sub call{
                     my $msg = $_[1];
                     $msg->cb(sub{
                         my($client,$msg)=@_;
-                        $c->safe_render(json=>{id=>$msg->id,code=>$msg->code,status=>$msg->msg});
+                        $c->safe_render(json=>{id=>$msg->id,code=>$msg->code,status=>$msg->msg,info=>$msg->info});
                     });
                     $msg->from("api");
                 });
@@ -339,7 +339,7 @@ sub call{
                     my $msg = $_[1];
                     $msg->cb(sub{
                         my($client,$msg)=@_;
-                        $c->safe_render(json=>{id=>$msg->id,code=>$msg->code,status=>$msg->msg});
+                        $c->safe_render(json=>{id=>$msg->id,code=>$msg->code,status=>$msg->msg,info=>$msg->info});
                     });
                     $msg->from("api");
                 });
@@ -359,7 +359,7 @@ sub call{
                     my $msg = $_[1];
                     $msg->cb(sub{
                         my($client,$msg)=@_;
-                        $c->safe_render(json=>{id=>$msg->id,code=>$msg->code,status=>$msg->msg});
+                        $c->safe_render(json=>{id=>$msg->id,code=>$msg->code,status=>$msg->msg,info=>$msg->info});
                     });
                     $msg->from("api");
                 });
@@ -375,7 +375,7 @@ sub call{
                     my $msg = $_[1];
                     $msg->cb(sub{
                         my($client,$msg)=@_;
-                        $c->safe_render(json=>{id=>$msg->id,code=>$msg->code,status=>$msg->msg});
+                        $c->safe_render(json=>{id=>$msg->id,code=>$msg->code,status=>$msg->msg,info=>$msg->info});
                     });
                     $msg->from("api");
                 });
@@ -400,7 +400,7 @@ sub call{
         my $c = shift;
         my @params = map {defined $_?Encode::encode("utf8",$_):$_} @{$c->req->params->pairs};
         my @objects = $client->search_group(@params);
-        for(@objects){$client->update_group_member($_,is_blocking=>1,is_update_group_member_ext=>1) if $_->is_empty};
+        for(@objects){$client->update_group_member($_,is_blocking=>1,is_update_group_member_ext=>1) if $_->is_empty or !$_->_is_hold_member_ext};
         if(@objects){
             $c->safe_render(json=>[map {$_->to_json_hash()} @objects]);
         }

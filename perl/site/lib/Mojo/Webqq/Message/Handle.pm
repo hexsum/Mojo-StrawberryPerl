@@ -397,7 +397,7 @@ sub parse_receive_msg {
                     time    => $m->{value}{'time'},
                     content     => $m->{value}{content},
                 };
-                if($self->allow_message_sync and $msg->{sender_id} eq $self->user->id){
+                if($msg->{sender_id} eq $self->user->id){
                     $msg->{class} = 'send';
                     $msg->{source} = 'outer';
                     next if not $self->allow_message_sync ;
@@ -566,7 +566,7 @@ sub parse_receive_msg {
     #}
 
     elsif( ref $self->ignore_poll_retcode eq "ARRAY" and grep { $json->{retcode} == $_} @{$self->ignore_poll_retcode}){
-        $self->warn("忽略接收消息中的异常状态码[ $json->{retcode} ]");
+        $self->debug("忽略接收消息中的异常状态码[ $json->{retcode} ]");
         $self->poll_failure_count(0);
     }
 
