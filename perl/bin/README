@@ -1,0 +1,9 @@
+The bdf2gdfont.pl script will convert an X11 BDF font into a bitmapped
+font that can be loaded into GD using the GD::Font->load() method.
+Some restrictions apply. Run "perldoc bdf2gdfont.pl" for details.
+
+Other scripts in this directory were designed for older versions of
+libgd in which the fonts are compiled in.  Please use with care.
+
+Lincoln Stein
+Fall 2004

@@ -1,0 +1,60 @@
+=pod
+
+=encoding utf8
+
+=head1 NAME
+
+Webqq::Encryption - Webqq Login Encryption Library
+
+=head1 SYNOPSIS
+
+    use Webqq::Encryption qw(pwd_encrypt);
+
+    #输入的参数依次是：登录密码的32位MD5值，盐，验证码
+    $p = pwd_encrypt($pwd,$md5_salt,$verifycode);
+
+=head1 DESCRIPTION
+
+    此模块应用在 Mojo::Webqq 中，也可能应用在其他的基于web的腾讯登录页面
+
+    安装方法:
+
+    1.安装依赖模块:
+    
+    Crypt::OpenSSL::RSA
+    Crypt::OpenSSL::Bignum
+
+    1) windows
+
+        安装 StrawberryPerl 之后则自带上述依赖模块 官方网站 http://strawberryperl.com/
+
+    2) RedHat/Centos
+
+        yum install -y perl-Crypt-OpenSSL-RSA perl-Crypt-OpenSSL-Bignum
+
+    3) Ubuntu/MacOS
+
+        apt-get install libcrypt-openssl-bignum-perl libcrypt-openssl-rsa-perl
+
+
+   2. 在线安装 Webqq::Encryption
+   
+        cpanm Webqq::Encryption
+
+=head1 SEE ALSO
+
+L<https://github.com/sjdy521/Webqq-Webqq>
+
+L<https://github.com/sjdy521/Webqq-Encryption>
+
+=head1 AUTHOR
+
+sjdy521, E<lt>sjdy521@163.comE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2014 by sjdy521
+
+This library is free software; you can redistribute it and/or modify it under BSD 2-clause "Simplified" license
+
+=cut

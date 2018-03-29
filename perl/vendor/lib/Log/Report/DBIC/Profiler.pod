@@ -1,0 +1,46 @@
+=encoding utf8
+
+=head1 NAME
+
+Log::Report::DBIC::Profiler - query profiler for DBIx::Class
+
+=head1 INHERITANCE
+
+ Log::Report::DBIC::Profiler
+   is a DBIx::Class::Storage::Statistics
+
+=head1 SYNOPSIS
+
+  use Log::Report::DBIC::Profiler;
+  $schema->storage->debugobj(Log::Report::DBIC::Profiler->new);
+  $schema->storage->debug(1);
+
+  # And maybe (if no exceptions expected from DBIC)
+  $schema->exception_action(sub { panic @_ });
+  
+  # Log to syslog
+  use Log::Report;
+  dispatcher SYSLOG => 'myapp'
+    , identity => 'myapp'
+    , facility => 'local0'
+    , flags    => "pid ndelay nowait"
+    , mode     => 'DEBUG';
+
+=head1 DESCRIPTION
+
+This profile will log DBIx::Class queries via L<Log::Report|Log::Report> to a
+selected back-end (via a dispatcher, see L<Log::Report::Dispatcher|Log::Report::Dispatcher>)
+
+=head1 SEE ALSO
+
+This module is part of Log-Report distribution version 1.15,
+built on April 18, 2016. Website: F<http://perl.overmeer.net/log-report/>
+
+=head1 LICENSE
+
+Copyrights 2007-2016 by [Mark Overmeer]. For other contributors see ChangeLog.
+
+This program is free software; you can redistribute it and/or modify it
+under the same terms as Perl itself.
+See F<http://www.perl.com/perl/misc/Artistic.html>
+

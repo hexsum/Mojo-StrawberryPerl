@@ -1,0 +1,845 @@
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/autoconf.h.in gdbm-1.10/autoconf.h.in
+--- gdbm-1.10.original/autoconf.h.in	2016-05-09 16:01:22.251964300 +0200
++++ gdbm-1.10/autoconf.h.in	2016-05-09 16:01:21.864793300 +0200
+@@ -82,12 +82,15 @@
+ /* Define to 1 if you have the <string.h> header file. */
+ #undef HAVE_STRING_H
+ 
+-/* Define to 1 if `st_blksize' is member of `struct stat'. */
++/* Define to 1 if `st_blksize' is a member of `struct stat'. */
+ #undef HAVE_STRUCT_STAT_ST_BLKSIZE
+ 
+ /* Define to 1 if you have the <sys/file.h> header file. */
+ #undef HAVE_SYS_FILE_H
+ 
++/* Define to 1 if you have the <sys/param.h> header file. */
++#undef HAVE_SYS_PARAM_H
++
+ /* Define to 1 if you have the <sys/stat.h> header file. */
+ #undef HAVE_SYS_STAT_H
+ 
+@@ -119,6 +122,9 @@
+ /* Define to the one symbol short name of this package. */
+ #undef PACKAGE_TARNAME
+ 
++/* Define to the home page for this package. */
++#undef PACKAGE_URL
++
+ /* Define to the version of this package. */
+ #undef PACKAGE_VERSION
+ 
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/compat/dbmopen.c gdbm-1.10/compat/dbmopen.c
+--- gdbm-1.10.original/compat/dbmopen.c	2016-05-09 16:01:22.773962700 +0200
++++ gdbm-1.10/compat/dbmopen.c	2016-05-09 16:01:21.912159700 +0200
+@@ -58,13 +58,17 @@
+ 
+ /* FIXME: revise return codes */
+ static int
+-ndbm_open_dir_file0 (const char *file_name, int pagfd, int mode)
++ndbm_open_dir_file0 (const char *file_name, struct gdbm_file_info *pag, int mode)
+ {
+   int fd = -1;
+   struct stat st, pagst;
+   unsigned char dirbuf[DEF_DIR_SIZE];
+   int flags = (mode & GDBM_OPENMASK) == GDBM_READER ?
+                 O_RDONLY : O_RDWR;
++  int pagfd = pag->desc;
++#ifdef _WIN32
++  HANDLE hFile;
++#endif
+ 
+   if (mode & GDBM_CLOEXEC)
+     flags |= O_CLOEXEC;
+@@ -76,13 +80,40 @@
+     } 
+       
+   /* Previous versions of GDBM linked pag to dir. Try to detect this: */
++#ifdef _WIN32
++  hFile = CreateFile(file_name, 0, FILE_SHARE_READ | FILE_SHARE_WRITE,
++		     NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
++		     NULL);
++
++  if (hFile != INVALID_HANDLE_VALUE)
++    {
++      BY_HANDLE_FILE_INFORMATION fileInfo;
++      GetFileInformationByHandle (hFile, &fileInfo);
++      CloseHandle (hFile);
++      st.st_size = (fileInfo.nFileSizeHigh * MAXDWORD) + fileInfo.nFileSizeLow;
++
++      if (fileInfo.nNumberOfLinks >= 2)
++	{
++	   BY_HANDLE_FILE_INFORMATION pagInfo;
++	   GetFileInformationByHandle ((HANDLE)_get_osfhandle (pagfd), &pagInfo);
++	   if ((fileInfo.nFileIndexLow == pagInfo.nFileIndexLow) &&
++	       (fileInfo.nFileIndexHigh == pagInfo.nFileIndexHigh))
++	    {
++	      /* Close pag because unlink dir file fails on Windows */
++	      close (pagfd);
++#else
+   if (stat (file_name, &st) == 0)
+     {
+       if (st.st_nlink >= 2)
+ 	{
+ 	  if (st.st_dev == pagst.st_dev && st.st_ino == pagst.st_ino)
+ 	    {
+-	      if (unlink (file_name))
++#endif
++	      int ret = unlink (file_name);
++#ifdef _WIN32
++	      pagfd = pag->desc = open(pag->name, flags | O_BINARY);
++#endif
++	      if (ret)
+ 		{
+ 		  if ((mode & GDBM_OPENMASK) == GDBM_READER)
+ 		    /* Ok, try to cope with it. */
+@@ -109,7 +140,7 @@
+ 	}
+       else
+ 	{
+-	  fd = open (file_name, flags);
++	  fd = open (file_name, flags | O_BINARY);
+ 	  if (fd == -1)
+ 	    {
+ 	      gdbm_errno = GDBM_FILE_OPEN_ERROR;
+@@ -141,7 +172,7 @@
+     }
+   
+   /* File does not exist.  Create it. */
+-  fd = open (file_name, flags | O_CREAT, pagst.st_mode & 0777);
++  fd = open (file_name, flags | O_CREAT | O_BINARY, pagst.st_mode & 0777);
+   if (fd >= 0)
+     {
+       putint (dirbuf, GDBM_DIR_MAGIC);
+@@ -161,10 +192,11 @@
+ }
+ 
+ static int
+-ndbm_open_dir_file (const char *base, int pagfd, int mode)
++ndbm_open_dir_file (const char *base, struct gdbm_file_info *pag, int mode)
+ {
+   char *file_name = malloc (strlen (base) + sizeof (DIRSUF));
+   int fd;
++  int pagfd = pag->desc;
+   
+   if (!file_name)
+     {
+@@ -172,7 +204,7 @@
+       return -1;
+     }
+   fd = ndbm_open_dir_file0 (strcat (strcpy (file_name, base), DIRSUF),
+-			    pagfd, mode);
++			    pag, mode);
+   free (file_name);
+   return fd;
+ }
+@@ -265,7 +297,7 @@
+     }
+   else
+     {
+-      dbm->dirfd = ndbm_open_dir_file (file, dbm->file->desc, open_flags);
++      dbm->dirfd = ndbm_open_dir_file (file, dbm->file, open_flags);
+       if (dbm->dirfd == -1)
+ 	{
+ 	  gdbm_close (dbm->file);
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/compat/Makefile.in gdbm-1.10/compat/Makefile.in
+--- gdbm-1.10.original/compat/Makefile.in	2016-05-09 16:01:22.982409400 +0200
++++ gdbm-1.10/compat/Makefile.in	2016-05-09 16:01:21.881086500 +0200
+@@ -208,6 +208,7 @@
+ PACKAGE_NAME = @PACKAGE_NAME@
+ PACKAGE_STRING = @PACKAGE_STRING@
+ PACKAGE_TARNAME = @PACKAGE_TARNAME@
++PACKAGE_URL = @PACKAGE_URL@
+ PACKAGE_VERSION = @PACKAGE_VERSION@
+ PATH_SEPARATOR = @PATH_SEPARATOR@
+ POSUB = @POSUB@
+@@ -305,7 +306,7 @@
+  dbmrdonly.c
+ 
+ libgdbm_compat_la_SOURCES = $(DBM_CF) $(NDBM_CF)
+-libgdbm_compat_la_LDFLAGS = -version-info $(VI_CURRENT):$(VI_REVISION):$(VI_AGE)
++libgdbm_compat_la_LDFLAGS = -no-undefined -version-info $(VI_CURRENT):$(VI_REVISION):$(VI_AGE)
+ all: all-am
+ 
+ .SUFFIXES:
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/doc/Makefile.in gdbm-1.10/doc/Makefile.in
+--- gdbm-1.10.original/doc/Makefile.in	2016-05-09 16:01:23.292139500 +0200
++++ gdbm-1.10/doc/Makefile.in	2016-05-09 16:01:21.912159700 +0200
+@@ -186,6 +186,7 @@
+ PACKAGE_NAME = @PACKAGE_NAME@
+ PACKAGE_STRING = @PACKAGE_STRING@
+ PACKAGE_TARNAME = @PACKAGE_TARNAME@
++PACKAGE_URL = @PACKAGE_URL@
+ PACKAGE_VERSION = @PACKAGE_VERSION@
+ PATH_SEPARATOR = @PATH_SEPARATOR@
+ POSUB = @POSUB@
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/export/Makefile.in gdbm-1.10/export/Makefile.in
+--- gdbm-1.10.original/export/Makefile.in	2016-05-09 16:01:23.407694700 +0200
++++ gdbm-1.10/export/Makefile.in	2016-05-09 16:01:21.912159700 +0200
+@@ -178,6 +178,7 @@
+ PACKAGE_NAME = @PACKAGE_NAME@
+ PACKAGE_STRING = @PACKAGE_STRING@
+ PACKAGE_TARNAME = @PACKAGE_TARNAME@
++PACKAGE_URL = @PACKAGE_URL@
+ PACKAGE_VERSION = @PACKAGE_VERSION@
+ PATH_SEPARATOR = @PATH_SEPARATOR@
+ POSUB = @POSUB@
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/Makefile.in gdbm-1.10/Makefile.in
+--- gdbm-1.10.original/Makefile.in	2016-05-09 16:01:23.828660300 +0200
++++ gdbm-1.10/Makefile.in	2016-05-09 16:01:21.864793300 +0200
+@@ -203,6 +203,7 @@
+ PACKAGE_NAME = @PACKAGE_NAME@
+ PACKAGE_STRING = @PACKAGE_STRING@
+ PACKAGE_TARNAME = @PACKAGE_TARNAME@
++PACKAGE_URL = @PACKAGE_URL@
+ PACKAGE_VERSION = @PACKAGE_VERSION@
+ PATH_SEPARATOR = @PATH_SEPARATOR@
+ POSUB = @POSUB@
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/MINGW-packages.URL gdbm-1.10/MINGW-packages.URL
+--- gdbm-1.10.original/MINGW-packages.URL	2016-05-09 16:01:23.865176300 +0200
++++ gdbm-1.10/MINGW-packages.URL	2016-05-09 16:01:21.662607300 +0200
+@@ -0,0 +1,6 @@
++[InternetShortcut]
++URL=https://github.com/Alexpux/MINGW-packages/tree/master/mingw-w64-gdbm
++IDList=
++HotKey=0
++IconFile=D:\sw\_PA\PortableApps\FirefoxPortable\Data\profile\shortcutCache\EbWbbjoWlOdP8_ugl+jT3A==.ico
++IconIndex=0
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/src/falloc.c gdbm-1.10/src/falloc.c
+--- gdbm-1.10.original/src/falloc.c	2016-05-09 16:01:24.585662900 +0200
++++ gdbm-1.10/src/falloc.c	2016-05-09 16:01:21.801990400 +0200
+@@ -255,7 +255,7 @@
+ 
+ 
+   /* Split the header block. */
+-  temp = (avail_block *) malloc (av_size);
++  temp = (avail_block *) calloc (1, av_size);
+   if (temp == NULL) _gdbm_fatal (dbf, _("malloc error"));
+   /* Set the size to be correct AFTER the pop_avail_block. */
+   temp->size = dbf->header->avail.size;
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/src/flatfile.c gdbm-1.10/src/flatfile.c
+--- gdbm-1.10.original/src/flatfile.c	2016-05-09 16:01:24.628219600 +0200
++++ gdbm-1.10/src/flatfile.c	2016-05-09 16:01:21.942539500 +0200
+@@ -20,7 +20,11 @@
+ 
+ /* Include system configuration before all else. */
+ # include "autoconf.h"
++#ifdef _WIN32
++# include <winsock2.h>
++#else
+ # include <arpa/inet.h>
++#endif
+ 
+ # include "gdbmdefs.h"
+ # include "gdbm.h"
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/src/gdbmopen.c gdbm-1.10/src/gdbmopen.c
+--- gdbm-1.10.original/src/gdbmopen.c	2016-05-09 16:01:24.910660300 +0200
++++ gdbm-1.10/src/gdbmopen.c	2016-05-09 16:01:21.942539500 +0200
+@@ -129,6 +129,8 @@
+   else
+     dbf->cloexec = FALSE;
+   
++  fbits |= O_BINARY;
++
+   /* Open the file. */
+   need_trunc = FALSE;
+   switch (flags & GDBM_OPENMASK)
+@@ -264,7 +266,7 @@
+ 	(dbf->header->block_size - sizeof (hash_bucket))
+ 	/ sizeof (bucket_element) + 1;
+       dbf->header->bucket_size  = dbf->header->block_size;
+-      dbf->bucket = (hash_bucket *) malloc (dbf->header->bucket_size);
++      dbf->bucket = (hash_bucket *) calloc (1, dbf->header->bucket_size);
+       if (dbf->bucket == NULL)
+ 	{
+ 	  gdbm_close (dbf);
+@@ -456,7 +458,7 @@
+       for(index = 0; index < size; index++)
+         {
+           (dbf->bucket_cache[index]).ca_bucket
+-            = (hash_bucket *) malloc (dbf->header->bucket_size);
++            = (hash_bucket *) calloc (1, dbf->header->bucket_size);
+           if ((dbf->bucket_cache[index]).ca_bucket == NULL)
+ 	    {
+               gdbm_errno = GDBM_MALLOC_ERROR;
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/src/gdbmreorg.c gdbm-1.10/src/gdbmreorg.c
+--- gdbm-1.10.original/src/gdbmreorg.c	2016-05-09 16:01:24.933277700 +0200
++++ gdbm-1.10/src/gdbmreorg.c	2016-05-09 16:01:21.942539500 +0200
+@@ -22,7 +22,17 @@
+ 
+ #include "gdbmdefs.h"
+ 
+-#if !HAVE_RENAME
++#if defined(_WIN32)
++static int
++_gdbm_rename (char *old_name, char *new_name)
++{
++  if (!MoveFileEx (old_name, new_name, MOVEFILE_REPLACE_EXISTING))
++    return -1;
++
++  return 0;
++}
++#define rename _gdbm_rename
++#elif !HAVE_RENAME
+ 
+ /* Rename takes OLD_NAME and renames it as NEW_NAME.  If it can not rename
+    the file a non-zero value is returned.  OLD_NAME is guaranteed to
+@@ -94,7 +104,7 @@
+   strcpy (&new_name[0], dbf->name);
+   new_name[len+2] = 0;
+   new_name[len+1] = '#';
+-  while ( (len > 0) && new_name[len-1] != '/')
++  while ( (len > 0) && new_name[len-1] != '/' && new_name[len-1] != '\\')
+     {
+       new_name[len] = new_name[len-1];
+       len -= 1;
+@@ -157,20 +167,38 @@
+   
+   /* Move the new file to old name. */
+ 
++
++#ifdef _WIN32
++  close (new_dbf->desc);
++
++  if (dbf->file_locking)
++    {
++      _gdbm_unlock_file (dbf);
++    }
++  close (dbf->desc);
++#endif
+   if (rename (new_name, dbf->name) != 0)
+     {
+       gdbm_errno = GDBM_REORGANIZE_FAILED;
++#ifdef _WIN32
++      dbf->desc = open (dbf->name, O_RDWR|O_BINARY, 0);
++      new_dbf->desc = open (new_name, O_RDWR|O_BINARY, 0);
++#endif
+       gdbm_close (new_dbf);
+       free (new_name);
+       return -1;
+     }
+ 
+   /* Fix up DBF to have the correct information for the new file. */
++#ifdef _WIN32
++  new_dbf->desc = open (dbf->name, O_RDWR|O_BINARY, 0);
++#else
+   if (dbf->file_locking)
+     {
+       _gdbm_unlock_file (dbf);
+     }
+   close (dbf->desc);
++#endif
+   free (dbf->header);
+   free (dbf->dir);
+ 
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/src/lock.c gdbm-1.10/src/lock.c
+--- gdbm-1.10.original/src/lock.c	2016-05-09 16:01:25.085319400 +0200
++++ gdbm-1.10/src/lock.c	2016-05-09 16:01:21.942539500 +0200
+@@ -23,7 +23,7 @@
+ 
+ #include <errno.h>
+ 
+-#if HAVE_FLOCK
++#if HAVE_FLOCK || defined(_WIN32)
+ # ifndef LOCK_SH
+ #  define LOCK_SH 1
+ # endif
+@@ -41,6 +41,83 @@
+ # endif
+ #endif
+ 
++#ifdef _WIN32
++#include <errno.h>
++#include <limits.h>
++
++/*
++ * flock support code for windows
++ *
++ * This code is derived from ruby (http://www.ruby-lang.org/).
++ * Original copyright notice is below.
++ */
++/*
++ *  Copyright (c) 1993, Intergraph Corporation
++ *
++ *  You may distribute under the terms of either the GNU General Public
++ *  License or the Artistic License, as specified in the perl README file.
++ *
++ *  Various Unix compatibility functions and NT specific functions.
++ *
++ *  Some of this code was derived from the MSDOS port(s) and the OS/2 port.
++ *
++ */
++
++#ifndef EWOULDBLOCK
++#define EWOULDBLOCK 10035 /* EBASEERR + 35 (winsock.h) */
++#endif
++
++#define LK_ERR(f,i) ((f) ? (i = 0) : (errno = GetLastError() == ERROR_LOCK_VIOLATION ? EWOULDBLOCK : EACCES))
++#define LK_LEN      ULONG_MAX
++
++static int
++flock_winnt(HANDLE fh, int oper)
++{
++    OVERLAPPED o;
++    int i = -1;
++
++    memset(&o, 0, sizeof(o));
++
++    switch(oper) {
++      case LOCK_SH:		/* shared lock */
++	LK_ERR(LockFileEx(fh, 0, 0, LK_LEN, LK_LEN, &o), i);
++	break;
++      case LOCK_EX:		/* exclusive lock */
++	LK_ERR(LockFileEx(fh, LOCKFILE_EXCLUSIVE_LOCK, 0, LK_LEN, LK_LEN, &o), i);
++	break;
++      case LOCK_SH|LOCK_NB:	/* non-blocking shared lock */
++	LK_ERR(LockFileEx(fh, LOCKFILE_FAIL_IMMEDIATELY, 0, LK_LEN, LK_LEN, &o), i);
++	break;
++      case LOCK_EX|LOCK_NB:	/* non-blocking exclusive lock */
++	LK_ERR(LockFileEx(fh,
++			  LOCKFILE_EXCLUSIVE_LOCK|LOCKFILE_FAIL_IMMEDIATELY,
++			  0, LK_LEN, LK_LEN, &o), i);
++	break;
++      case LOCK_UN:		/* unlock lock */
++	LK_ERR(UnlockFileEx(fh, 0, LK_LEN, LK_LEN, &o), i);
++	break;
++      default:            /* unknown */
++	errno = EINVAL;
++	break;
++    }
++    return i;
++}
++
++#undef LK_ERR
++
++int
++flock(int fd, int oper)
++{
++    static int (*locker)(HANDLE, int) = NULL;
++
++    if (!locker) {
++	locker = flock_winnt;
++    }
++
++    return locker((HANDLE)_get_osfhandle(fd), oper);
++}
++#endif /* _WIN32 */
++
+ #if defined(F_SETLK) && defined(F_RDLCK) && defined(F_WRLCK)
+ # define HAVE_FCNTL_LOCK 1
+ #else
+@@ -65,7 +142,7 @@
+   switch (dbf->lock_type)
+     {
+       case LOCKING_FLOCK:
+-#if HAVE_FLOCK
++#if HAVE_FLOCK || defined(_WIN32)
+ 	flock (dbf->desc, LOCK_UN);
+ #endif
+ 	break;
+@@ -101,7 +178,7 @@
+ #endif
+   int lock_val = -1;
+ 
+-#if HAVE_FLOCK
++#if HAVE_FLOCK || defined(_WIN32)
+   if (dbf->read_write == GDBM_READER)
+     lock_val = flock (dbf->desc, LOCK_SH + LOCK_NB);
+   else
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/src/Makefile.in gdbm-1.10/src/Makefile.in
+--- gdbm-1.10.original/src/Makefile.in	2016-05-09 16:01:25.132431800 +0200
++++ gdbm-1.10/src/Makefile.in	2016-05-09 16:01:21.926937800 +0200
+@@ -215,6 +215,7 @@
+ PACKAGE_NAME = @PACKAGE_NAME@
+ PACKAGE_STRING = @PACKAGE_STRING@
+ PACKAGE_TARNAME = @PACKAGE_TARNAME@
++PACKAGE_URL = @PACKAGE_URL@
+ PACKAGE_VERSION = @PACKAGE_VERSION@
+ PATH_SEPARATOR = @PATH_SEPARATOR@
+ POSUB = @POSUB@
+@@ -324,7 +325,7 @@
+  update.c\
+  version.c
+ 
+-libgdbm_la_LDFLAGS = -version-info $(VI_CURRENT):$(VI_REVISION):$(VI_AGE)
++libgdbm_la_LDFLAGS = -no-undefined -lws2_32 -version-info $(VI_CURRENT):$(VI_REVISION):$(VI_AGE)
+ testgdbm_LDADD = ./libgdbm.la
+ all: all-am
+ 
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/src/systems.h gdbm-1.10/src/systems.h
+--- gdbm-1.10.original/src/systems.h	2016-05-09 16:01:25.200673700 +0200
++++ gdbm-1.10/src/systems.h	2016-05-09 16:01:21.958062500 +0200
+@@ -18,6 +18,11 @@
+    along with GDBM. If not, see <http://www.gnu.org/licenses/>.    */
+ 
+ /* Include all system headers first. */
++#ifdef _WIN32
++# undef _WIN32_WINNT
++# define _WIN32_WINNT 0x0501
++# include <windows.h>
++#endif
+ #if HAVE_SYS_TYPES_H
+ # include <sys/types.h>
+ #endif
+@@ -50,6 +55,10 @@
+ # define O_CLOEXEC 0
+ #endif
+ 
++#ifndef O_BINARY
++# define O_BINARY 0
++#endif
++
+ /* Default block size.  Some systems do not have blocksize in their
+    stat record. This code uses the BSD blocksize from stat. */
+ 
+@@ -63,7 +72,7 @@
+ #if HAVE_FTRUNCATE
+ # define TRUNCATE(dbf) ftruncate (dbf->desc, 0)
+ #else
+-# define TRUNCATE(dbf) close( open (dbf->name, O_RDWR|O_TRUNC, mode));
++# define TRUNCATE(dbf) close( open (dbf->name, O_RDWR|O_TRUNC|O_BINARY, mode));
+ #endif
+ 
+ #ifndef STDERR_FILENO
+@@ -82,8 +91,14 @@
+ # define __lseek(_dbf, _off, _whn)	lseek(_dbf->desc, _off, _whn)
+ # if HAVE_FSYNC
+ #  define __fsync(_dbf)			fsync(_dbf->desc)
++# elif defined(_WIN32)
++#  define __fsync(_dbf)			_commit(_dbf->desc)
+ # else
+ #  define __fsync(_dbf)			{ sync(); sync(); }
+ # endif
+ #endif
+ 
++/* Windows port of flock */
++#ifdef _WIN32
++extern int flock(int fd, int oper);
++#endif
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/src/testgdbm.c gdbm-1.10/src/testgdbm.c
+--- gdbm-1.10.original/src/testgdbm.c	2016-05-09 16:01:25.220415800 +0200
++++ gdbm-1.10/src/testgdbm.c	2016-05-09 16:01:21.958062500 +0200
+@@ -27,7 +27,9 @@
+ #include <errno.h>
+ #include <ctype.h>
+ #include <signal.h>
++#ifndef _WIN32
+ #include <sys/ioctl.h>
++#endif
+ #ifdef HAVE_SYS_TERMIOS_H
+ # include <sys/termios.h>
+ #endif
+@@ -1126,7 +1128,9 @@
+       -1)
+     error (2, _("gdbm_setopt failed: %s"), gdbm_strerror (gdbm_errno));
+ 
++#ifndef _WIN32
+   signal (SIGPIPE, SIG_IGN);
++#endif
+ 
+   /* Welcome message. */
+   if (interactive)
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/tests/dtdel.c gdbm-1.10/tests/dtdel.c
+--- gdbm-1.10.original/tests/dtdel.c	2016-05-09 16:01:25.753633700 +0200
++++ gdbm-1.10/tests/dtdel.c	2016-05-09 16:01:21.958062500 +0200
+@@ -16,6 +16,7 @@
+ */
+ #include "autoconf.h"
+ #include <stdio.h>
++#include <fcntl.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include "dbm.h"
+@@ -31,6 +32,11 @@
+   int data_z = 0;
+   int rc = 0;
+   
++#ifdef _WIN32
++  _setmode(_fileno(stdout), O_BINARY);
++  _setmode(_fileno(stderr), O_BINARY);
++#endif
++
+   while (--argc)
+     {
+       char *arg = *++argv;
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/tests/dtdump.c gdbm-1.10/tests/dtdump.c
+--- gdbm-1.10.original/tests/dtdump.c	2016-05-09 16:01:25.780049200 +0200
++++ gdbm-1.10/tests/dtdump.c	2016-05-09 16:01:21.958062500 +0200
+@@ -16,6 +16,7 @@
+ */
+ #include "autoconf.h"
+ #include <stdio.h>
++#include <fcntl.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include "dbm.h"
+@@ -30,6 +31,11 @@
+   datum data;
+   int delim = '\t';
+   
++#ifdef _WIN32
++  _setmode(_fileno(stdout), O_BINARY);
++  _setmode(_fileno(stderr), O_BINARY);
++#endif
++
+   while (--argc)
+     {
+       char *arg = *++argv;
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/tests/dtfetch.c gdbm-1.10/tests/dtfetch.c
+--- gdbm-1.10.original/tests/dtfetch.c	2016-05-09 16:01:25.806646300 +0200
++++ gdbm-1.10/tests/dtfetch.c	2016-05-09 16:01:21.974118400 +0200
+@@ -16,6 +16,7 @@
+ */
+ #include "autoconf.h"
+ #include <stdio.h>
++#include <fcntl.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include "dbm.h"
+@@ -45,6 +46,11 @@
+   int delim = 0;
+   int rc = 0;
+   
++#ifdef _WIN32
++  _setmode(_fileno(stdout), O_BINARY);
++  _setmode(_fileno(stderr), O_BINARY);
++#endif
++
+   while (--argc)
+     {
+       char *arg = *++argv;
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/tests/dtload.c gdbm-1.10/tests/dtload.c
+--- gdbm-1.10.original/tests/dtload.c	2016-05-09 16:01:25.830147000 +0200
++++ gdbm-1.10/tests/dtload.c	2016-05-09 16:01:21.974118400 +0200
+@@ -16,6 +16,7 @@
+ */
+ #include "autoconf.h"
+ #include <stdio.h>
++#include <fcntl.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <unistd.h>
+@@ -40,6 +41,12 @@
+   int delim = '\t';
+   int data_z = 0;
+   
++#ifdef _WIN32
++  _setmode(_fileno(stdin), O_BINARY);
++  _setmode(_fileno(stdout), O_BINARY);
++  _setmode(_fileno(stderr), O_BINARY);
++#endif
++
+   while (--argc)
+     {
+       char *arg = *++argv;
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/tests/gtdel.c gdbm-1.10/tests/gtdel.c
+--- gdbm-1.10.original/tests/gtdel.c	2016-05-09 16:01:25.949534000 +0200
++++ gdbm-1.10/tests/gtdel.c	2016-05-09 16:01:21.989647800 +0200
+@@ -16,6 +16,7 @@
+ */
+ #include "autoconf.h"
+ #include <stdio.h>
++#include <fcntl.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include "gdbm.h"
+@@ -32,6 +33,11 @@
+   int data_z = 0;
+   int rc = 0;
+   
++#ifdef _WIN32
++  _setmode(_fileno(stdout), O_BINARY);
++  _setmode(_fileno(stderr), O_BINARY);
++#endif
++
+   while (--argc)
+     {
+       char *arg = *++argv;
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/tests/gtdump.c gdbm-1.10/tests/gtdump.c
+--- gdbm-1.10.original/tests/gtdump.c	2016-05-09 16:01:25.975209600 +0200
++++ gdbm-1.10/tests/gtdump.c	2016-05-09 16:01:21.989647800 +0200
+@@ -16,6 +16,7 @@
+ */
+ #include "autoconf.h"
+ #include <stdio.h>
++#include <fcntl.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include "gdbm.h"
+@@ -32,6 +33,11 @@
+   GDBM_FILE dbf;
+   int delim = '\t';
+   
++#ifdef _WIN32
++  _setmode(_fileno(stdin), O_BINARY);
++  _setmode(_fileno(stdout), O_BINARY);
++#endif
++
+   while (--argc)
+     {
+       char *arg = *++argv;
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/tests/gtfetch.c gdbm-1.10/tests/gtfetch.c
+--- gdbm-1.10.original/tests/gtfetch.c	2016-05-09 16:01:25.995429400 +0200
++++ gdbm-1.10/tests/gtfetch.c	2016-05-09 16:01:21.989647800 +0200
+@@ -16,6 +16,7 @@
+ */
+ #include "autoconf.h"
+ #include <stdio.h>
++#include <fcntl.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include "gdbm.h"
+@@ -47,6 +48,11 @@
+   int delim = 0;
+   int rc = 0;
+   
++#ifdef _WIN32
++  _setmode(_fileno(stdout), O_BINARY);
++  _setmode(_fileno(stderr), O_BINARY);
++#endif
++
+   while (--argc)
+     {
+       char *arg = *++argv;
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/tests/gtload.c gdbm-1.10/tests/gtload.c
+--- gdbm-1.10.original/tests/gtload.c	2016-05-09 16:01:26.015610200 +0200
++++ gdbm-1.10/tests/gtload.c	2016-05-09 16:01:21.989647800 +0200
+@@ -16,6 +16,7 @@
+ */
+ #include "autoconf.h"
+ #include <stdio.h>
++#include <fcntl.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <errno.h>
+@@ -40,6 +41,11 @@
+   int data_z = 0;
+   size_t mapped_size_max = 0;
+   
++#ifdef _WIN32
++  _setmode(_fileno(stdin), O_BINARY);
++  _setmode(_fileno(stdout), O_BINARY);
++#endif
++
+   while (--argc)
+     {
+       char *arg = *++argv;
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/tests/gtopt.c gdbm-1.10/tests/gtopt.c
+--- gdbm-1.10.original/tests/gtopt.c	2016-05-09 16:01:26.035248200 +0200
++++ gdbm-1.10/tests/gtopt.c	2016-05-09 16:01:22.005315100 +0200
+@@ -178,7 +178,11 @@
+ int
+ test_maxmapsize (void *valptr)
+ {
++#ifdef _SC_PAGESIZE
+   size_t page_size = sysconf (_SC_PAGESIZE);
++#else
++  size_t page_size = 4096;
++#endif
+   size_t expected_size = ((mapped_size_max + page_size - 1) / page_size) *
+ 	                          page_size;
+   return (*(size_t*) valptr == expected_size) ? RES_PASS : RES_FAIL;
+@@ -309,6 +313,10 @@
+   GDBM_FILE dbf;
+   struct optest *op;
+   
++#ifdef _WIN32
++  _setmode(_fileno(stdout), O_BINARY);
++#endif
++
+   progname = canonical_progname (argv[0]);
+   while (--argc)
+     {
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/tests/gtver.c gdbm-1.10/tests/gtver.c
+--- gdbm-1.10.original/tests/gtver.c	2016-05-09 16:01:26.064980800 +0200
++++ gdbm-1.10/tests/gtver.c	2016-05-09 16:01:22.021089700 +0200
+@@ -17,6 +17,7 @@
+ #include "autoconf.h"
+ #include <stdlib.h>
+ #include <stdio.h>
++#include <fcntl.h>
+ #include <string.h>
+ #include "gdbm.h"
+ #include "progname.h"
+@@ -31,6 +32,10 @@
+   const char *progname = canonical_progname (argv[0]);
+   int library = 0;
+ 
++#ifdef _WIN32
++  _setmode(_fileno(stdout), O_BINARY);
++#endif
++
+   if (argc == 1)
+     {
+       printf ("%s\n", gdbm_version);
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/tests/Makefile.in gdbm-1.10/tests/Makefile.in
+--- gdbm-1.10.original/tests/Makefile.in	2016-05-09 16:01:26.151171800 +0200
++++ gdbm-1.10/tests/Makefile.in	2016-05-09 16:01:21.958062500 +0200
+@@ -230,6 +230,7 @@
+ PACKAGE_NAME = @PACKAGE_NAME@
+ PACKAGE_STRING = @PACKAGE_STRING@
+ PACKAGE_TARNAME = @PACKAGE_TARNAME@
++PACKAGE_URL = @PACKAGE_URL@
+ PACKAGE_VERSION = @PACKAGE_VERSION@
+ PATH_SEPARATOR = @PATH_SEPARATOR@
+ POSUB = @POSUB@
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/tests/num2word.c gdbm-1.10/tests/num2word.c
+--- gdbm-1.10.original/tests/num2word.c	2016-05-09 16:01:26.175112600 +0200
++++ gdbm-1.10/tests/num2word.c	2016-05-09 16:01:22.021089700 +0200
+@@ -17,6 +17,7 @@
+ #include "autoconf.h"
+ #include <stdlib.h>
+ #include <stdio.h>
++#include <fcntl.h>
+ #include <string.h>
+ #include <unistd.h>
+ #include <errno.h>
+@@ -203,6 +204,10 @@
+ int
+ main (int argc, char **argv)
+ {
++#ifdef _WIN32
++  _setmode(_fileno(stdout), O_BINARY);
++#endif
++
+   progname = argv[0];
+   
+   if (argc == 1 || strcmp (argv[1], "-h") == 0)
+diff -r -u -w --strip-trailing-cr gdbm-1.10.original/tests/testsuite gdbm-1.10/tests/testsuite
+--- gdbm-1.10.original/tests/testsuite	2016-05-09 16:01:26.313488100 +0200
++++ gdbm-1.10/tests/testsuite	2016-05-09 16:01:22.021089700 +0200
+@@ -2069,7 +2069,7 @@
+ fi
+ at_status=$?
+ at_failed=false
+-echo >>"$at_stderr"; $as_echo "gtfetch: 0: not found
++echo >>"$at_stderr"; $as_echo "gtfetch.exe: 0: not found
+ " | \
+   $at_diff - "$at_stderr" || at_failed=:
+ at_func_diff_devnull "$at_stdout" || at_failed=:
+@@ -2200,7 +2200,7 @@
+ fi
+ at_status=$?
+ at_failed=false
+-echo >>"$at_stderr"; $as_echo "gtdel: cannot delete 11: Item not found
++echo >>"$at_stderr"; $as_echo "gtdel.exe: cannot delete 11: Item not found
+ " | \
+   $at_diff - "$at_stderr" || at_failed=:
+ at_func_diff_devnull "$at_stdout" || at_failed=:
+@@ -2519,7 +2519,7 @@
+ fi
+ at_status=$?
+ at_failed=false
+-echo >>"$at_stderr"; $as_echo "dtfetch: 0: not found
++echo >>"$at_stderr"; $as_echo "dtfetch.exe: 0: not found
+ " | \
+   $at_diff - "$at_stderr" || at_failed=:
+ at_func_diff_devnull "$at_stdout" || at_failed=:
+@@ -2808,7 +2808,7 @@
+ fi
+ at_status=$?
+ at_failed=false
+-echo >>"$at_stderr"; $as_echo "dtdel: cannot delete 11: Item not found
++echo >>"$at_stderr"; $as_echo "dtdel.exe: cannot delete 11: Item not found
+ " | \
+   $at_diff - "$at_stderr" || at_failed=:
+ at_func_diff_devnull "$at_stdout" || at_failed=:

@@ -1,0 +1,284 @@
+diff -r -u -w --strip-trailing-cr libxml2-2.9.3.original/include/wsockcompat.h libxml2-2.9.3/include/wsockcompat.h
+--- libxml2-2.9.3.original/include/wsockcompat.h	2016-05-09 16:08:59.308568200 +0200
++++ libxml2-2.9.3/include/wsockcompat.h	2016-05-09 16:08:49.114335700 +0200
+@@ -41,7 +41,7 @@
+ #define EWOULDBLOCK             WSAEWOULDBLOCK
+ #define ESHUTDOWN               WSAESHUTDOWN
+ 
+-#if (!defined(_MSC_VER) || (_MSC_VER < 1600))
++#if (!defined(_MSC_VER) || (_MSC_VER < 1600)) && (__MINGW64_VERSION_MAJOR<3)
+ #define EINPROGRESS             WSAEINPROGRESS
+ #define EALREADY                WSAEALREADY
+ #define ENOTSOCK                WSAENOTSOCK
+diff -r -u -w --strip-trailing-cr libxml2-2.9.3.original/nanoftp.c libxml2-2.9.3/nanoftp.c
+--- libxml2-2.9.3.original/nanoftp.c	2016-05-09 16:09:00.019185300 +0200
++++ libxml2-2.9.3/nanoftp.c	2016-05-09 16:08:49.192527700 +0200
+@@ -31,6 +31,9 @@
+ #ifdef HAVE_SYS_SOCKET_H
+ #include <sys/socket.h>
+ #endif
++#ifdef HAVE_WS2TCPIP_H
++#include <ws2tcpip.h>
++#endif
+ #ifdef HAVE_NETINET_IN_H
+ #include <netinet/in.h>
+ #endif
+@@ -78,14 +81,16 @@
+ 
+ 
+ #if defined(__MINGW32__) || defined(_WIN32_WCE)
+-#ifndef _WINSOCKAPI_
+-#define _WINSOCKAPI_
+-#endif
+ #include <wsockcompat.h>
+ #include <winsock2.h>
++#if defined(__MINGW64_VERSION_MAJOR)
++#undef XML_SOCKLEN_T
++#define XML_SOCKLEN_T int
++#else
+ #undef XML_SOCKLEN_T
+ #define XML_SOCKLEN_T unsigned int
+ #endif
++#endif
+ 
+ /**
+  * A couple portability macros
+diff -r -u -w --strip-trailing-cr libxml2-2.9.3.original/nanohttp.c libxml2-2.9.3/nanohttp.c
+--- libxml2-2.9.3.original/nanohttp.c	2016-05-09 16:09:00.042487700 +0200
++++ libxml2-2.9.3/nanohttp.c	2016-05-09 16:08:49.036245900 +0200
+@@ -75,14 +75,15 @@
+ #endif
+ 
+ #if defined(__MINGW32__) || defined(_WIN32_WCE)
+-#ifndef _WINSOCKAPI_
+-#define _WINSOCKAPI_
+-#endif
+ #include <wsockcompat.h>
+ #include <winsock2.h>
+ #undef XML_SOCKLEN_T
++#if defined(__MINGW64_VERSION_MAJOR)
++#define XML_SOCKLEN_T int
++#else
+ #define XML_SOCKLEN_T unsigned int
+ #endif
++#endif
+ 
+ #include <libxml/globals.h>
+ #include <libxml/xmlerror.h>
+diff -r -u -w --strip-trailing-cr libxml2-2.9.3.original/parser.c.rej libxml2-2.9.3/parser.c.rej
+--- libxml2-2.9.3.original/parser.c.rej	2016-05-09 16:09:02.002997400 +0200
++++ libxml2-2.9.3/parser.c.rej	2016-05-09 16:08:48.817743200 +0200
+@@ -0,0 +1,11 @@
++--- parser.c.orig	2013-03-31 03:56:29 +0400
+++++ parser.c	2013-03-31 04:02:15 +0400
++@@ -13489,7 +13489,7 @@
++ 	    xmlFree((xmlChar *) ctxt->encoding);
++         ctxt->encoding = xmlStrdup((const xmlChar *) doc->encoding);
++ 
++-        hdlr = xmlFindCharEncodingHandler(doc->encoding);
+++        hdlr = xmlFindCharEncodingHandler((const char *) doc->encoding);
++         if (hdlr != NULL) {
++             xmlSwitchToEncoding(ctxt, hdlr);
++ 	} else {
+diff -r -u -w --strip-trailing-cr libxml2-2.9.3.original/runtest.c libxml2-2.9.3/runtest.c
+--- libxml2-2.9.3.original/runtest.c	2016-05-09 16:09:53.989729000 +0200
++++ libxml2-2.9.3/runtest.c	2016-05-09 16:08:49.395834900 +0200
+@@ -125,6 +125,8 @@
+     char directory[500];
+     int len;
+ 
++    (void) flags;
++    (void) errfunc;
+     if ((pattern == NULL) || (pglob == NULL)) return(-1);
+ 
+     strncpy(directory, pattern, 499);
+diff -r -u -w --strip-trailing-cr libxml2-2.9.3.original/testThreadsWin32.c libxml2-2.9.3/testThreadsWin32.c
+--- libxml2-2.9.3.original/testThreadsWin32.c	2016-05-09 16:10:22.592354200 +0200
++++ libxml2-2.9.3/testThreadsWin32.c	2016-05-09 16:08:49.364357700 +0200
+@@ -17,7 +17,7 @@
+ static HANDLE tid[MAX_ARGC];
+ 
+ static const char *catalog = "test/threads/complex.xml";
+-static char *testfiles[] = {
++static const char *testfiles[] = {
+     "test/threads/abc.xml",
+     "test/threads/acb.xml",
+     "test/threads/bac.xml",
+@@ -83,13 +83,15 @@
+ }
+ 
+ int
+-main()
++main(int argc, char **argv)
+ {
+ 	unsigned int i, repeat;
+ 	unsigned int num_threads = sizeof(testfiles) / sizeof(testfiles[0]);
+ 	DWORD results[MAX_ARGC];
+ 	BOOL ret;
+ 
++        (void) argc;
++        (void) argv;
+ 	xmlInitParser();
+ 	for (repeat = 0;repeat < TEST_REPEAT_COUNT;repeat++)
+ 	{
+@@ -105,7 +107,7 @@
+ 		{
+ 			DWORD useless;
+ 			tid[i] = CreateThread(NULL, 0,
+-				thread_specific_data, testfiles[i], 0, &useless);
++				thread_specific_data, (LPVOID) testfiles[i], 0, &useless);
+ 			if (tid[i] == NULL)
+ 			{
+ 				perror("CreateThread");
+diff -r -u -w --strip-trailing-cr libxml2-2.9.3.original/threads.c libxml2-2.9.3/threads.c
+--- libxml2-2.9.3.original/threads.c	2016-05-09 16:10:22.656685300 +0200
++++ libxml2-2.9.3/threads.c	2016-05-09 16:08:49.271611500 +0200
+@@ -158,7 +158,7 @@
+ static DWORD mainthread;
+ static struct {
+     DWORD done;
+-    DWORD control;
++    LONG control;
+ } run_once = { 0, 0};
+ static volatile LPCRITICAL_SECTION global_init_lock = NULL;
+ 
+@@ -1006,6 +1006,9 @@
+ DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
+ #endif
+ {
++    /* Unused */
++    (void)(hinstDLL);
++    (void)(lpvReserved);
+     switch (fdwReason) {
+         case DLL_THREAD_DETACH:
+             if (globalkey != TLS_OUT_OF_INDEXES) {
+diff -r -u -w --strip-trailing-cr libxml2-2.9.3.original/timsort.h libxml2-2.9.3/timsort.h
+--- libxml2-2.9.3.original/timsort.h	2016-05-09 16:10:22.677651600 +0200
++++ libxml2-2.9.3/timsort.h	2016-05-09 16:08:49.427362900 +0200
+@@ -323,7 +323,15 @@
+     SORT_TYPE *tempstore = (SORT_TYPE *)realloc(store->storage, new_size * sizeof(SORT_TYPE));
+     if (tempstore == NULL)
+     {
+-      fprintf(stderr, "Error allocating temporary storage for tim sort: need %lu bytes", sizeof(SORT_TYPE) * new_size);
++      fprintf(stderr, "Error allocating temporary storage for tim sort: need "
++#if defined(_MSC_VER)
++          "%Iu"
++#elif defined(__MINGW32_MAJOR_VERSION)
++          "%u"
++#else
++          "%zu"
++#endif
++          " bytes",sizeof(SORT_TYPE) * new_size);
+       exit(1);
+     }
+     store->storage = tempstore;
+diff -r -u -w --strip-trailing-cr libxml2-2.9.3.original/uri.c libxml2-2.9.3/uri.c
+--- libxml2-2.9.3.original/uri.c	2016-05-09 16:10:22.930065000 +0200
++++ libxml2-2.9.3/uri.c	2016-05-09 16:08:48.911784800 +0200
+@@ -2389,7 +2389,6 @@
+  */
+ #if defined(_WIN32) && !defined(__CYGWIN__)
+     int len = 0;
+-    int i = 0;
+     xmlChar *p = NULL;
+ #endif
+     xmlURIPtr uri;
+@@ -2471,7 +2470,7 @@
+     len = xmlStrlen(path);
+     if ((len > 2) && IS_WINDOWS_PATH(path)) {
+         /* make the scheme 'file' */
+-	uri->scheme = xmlStrdup(BAD_CAST "file");
++	uri->scheme = (char *) xmlStrdup(BAD_CAST "file");
+ 	/* allocate space for leading '/' + path + string terminator */
+ 	uri->path = xmlMallocAtomic(len + 2);
+ 	if (uri->path == NULL) {
+@@ -2480,15 +2479,15 @@
+ 	}
+ 	/* Put in leading '/' plus path */
+ 	uri->path[0] = '/';
+-	p = uri->path + 1;
+-	strncpy(p, path, len + 1);
++	p = BAD_CAST (uri->path + 1);
++	strncpy((char *) p, (const char *) path, len + 1);
+     } else {
+-	uri->path = xmlStrdup(path);
++	uri->path = (char *) xmlStrdup(path);
+ 	if (uri->path == NULL) {
+ 	    xmlFreeURI(uri);
+ 	    return(NULL);
+ 	}
+-	p = uri->path;
++	p = BAD_CAST (uri->path);
+     }
+     /* Now change all occurences of '\' to '/' */
+     while (*p != '\0') {
+diff -r -u -w --strip-trailing-cr libxml2-2.9.3.original/xmlIO.c libxml2-2.9.3/xmlIO.c
+--- libxml2-2.9.3.original/xmlIO.c	2016-05-09 16:10:23.797890400 +0200
++++ libxml2-2.9.3/xmlIO.c	2016-05-09 16:08:49.083420000 +0200
+@@ -40,6 +40,9 @@
+ #endif
+ 
+ #if defined(WIN32) || defined(_WIN32)
++#ifdef HAVE_WS2TCPIP_H
++#include <ws2tcpip.h>
++#endif
+ #include <windows.h>
+ #endif
+ 
+@@ -59,7 +62,7 @@
+ #  endif
+ #else
+ #  ifdef HAVE__STAT
+-#    if defined(_WIN32) || defined (__DJGPP__) && !defined (__CYGWIN__)
++#    if (defined(_WIN32)  && !defined(__MINGW64_VERSION_MAJOR)) || defined (__DJGPP__) && !defined (__CYGWIN__)
+ #      define stat _stat
+ #    endif
+ #  endif
+@@ -665,7 +668,11 @@
+     wPath = __xmlIOWin32UTF8ToWChar(path);
+     if (wPath)
+     {
++#if !defined(__MINGW64_VERSION_MAJOR) || !(defined(_FILE_OFFSET_BITS) && (_FILE_OFFSET_BITS == 64))
+        retval = _wstat(wPath,info);
++#else
++       retval = _wstati64(wPath,info);
++#endif
+        xmlFree(wPath);
+     }
+     /* maybe path in native encoding */
+diff -r -u -w --strip-trailing-cr libxml2-2.9.3.original/xmllint.c libxml2-2.9.3/xmllint.c
+--- libxml2-2.9.3.original/xmllint.c	2016-05-09 16:10:23.818688000 +0200
++++ libxml2-2.9.3/xmllint.c	2016-05-09 16:08:49.208037500 +0200
+@@ -28,12 +28,15 @@
+ #endif
+ 
+ #ifdef __MINGW32__
+-#define _WINSOCKAPI_
+ #include <wsockcompat.h>
+ #include <winsock2.h>
+ #undef XML_SOCKLEN_T
++#if defined(__MINGW64_VERSION_MAJOR)
++#define XML_SOCKLEN_T int
++#else
+ #define XML_SOCKLEN_T unsigned int
+ #endif
++#endif
+ 
+ #ifdef HAVE_SYS_TIMEB_H
+ #include <sys/timeb.h>
+diff -r -u -w --strip-trailing-cr libxml2-2.9.3.original/xmlmodule.c libxml2-2.9.3/xmlmodule.c
+--- libxml2-2.9.3.original/xmlmodule.c	2016-05-09 16:10:23.858862600 +0200
++++ libxml2-2.9.3/xmlmodule.c	2016-05-09 16:08:49.303349600 +0200
+@@ -340,6 +340,12 @@
+      */
+     *symbol = GetProcAddressA(handle, name);
+ #else
++    /* FIXME: On the next ABI break change xmlModuleSymbol() prototype
++     * to use some dummy function pointer (doesn't matter what kind of
++     * function, as long as it's a function) instead of void*.
++     * ISO C does NOT require void* to be able to hold a function
++     * pointer, and any conformant compiler would warn about doing this:
++     */
+     *symbol = GetProcAddress(handle, name);
+ #endif
+     return (NULL == *symbol) ? -1 : 0;

@@ -1,0 +1,3 @@
+Package: postgresql-9.5.2
+Sources: http://ftp.postgresql.org/pub/source/v9.5.2/postgresql-9.5.2.tar.gz
+Homepage: http://www.postgresql.org/

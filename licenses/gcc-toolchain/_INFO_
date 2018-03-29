@@ -1,0 +1,22 @@
+Package: gcc-4.9.2
+Homepage: http://gcc.gnu.org/
+Sources: https://ftp.gnu.org/gnu/gcc/gcc-4.9.2/gcc-4.9.2.tar.bz2
+
+Package: binutils-2.25
+Homepage: http://www.gnu.org/software/binutils/
+Sources: https://ftp.gnu.org/gnu/binutils/binutils-2.25.tar.bz2
+
+Package: gdb-7.8.1
+Homepage: http://www.gnu.org/software/gdb/
+Sources: https://ftp.gnu.org/gnu/gdb/gdb-7.8.1.tar.xz
+
+Package: make-4.1
+Homepage: http://www.gnu.org/software/make/
+Sources: https://ftp.gnu.org/gnu/make/make-4.1.tar.bz2
+
+Package: mingw-w64-crt-v4.0.2
+Homepage: http://mingw-w64.sourceforge.net/
+Sources: http://sourceforge.net/projects/mingw-w64/files/mingw-w64/mingw-w64-release/
+
+CREDITS:
+this gcc toolchain was built using excellent MinGW-W64-builds-4.2.0 - https://github.com/niXman/mingw-builds

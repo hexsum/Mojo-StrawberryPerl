@@ -1,0 +1,4 @@
+Package: libiconv-1.14
+Sources: http://ftp.gnu.org/gnu/libiconv/libiconv-1.14.tar.gz
+Patch: libiconv-1.14.diff
+Homepage: http://www.gnu.org/software/libiconv/

@@ -1,0 +1,264 @@
+diff -r -u -w --strip-trailing-cr libxslt-1.1.28.original/configure libxslt-1.1.28/configure
+--- libxslt-1.1.28.original/configure	2016-05-09 16:10:36.398063300 +0200
++++ libxslt-1.1.28/configure	2016-05-09 16:10:35.598930800 +0200
+@@ -12870,58 +12870,6 @@
+   *-mingw*) ;;
+   *)
+ THREAD_LIBS=""
+-ac_fn_c_check_header_mongrel "$LINENO" "pthread.h" "ac_cv_header_pthread_h" "$ac_includes_default"
+-if test "x$ac_cv_header_pthread_h" = xyes; then :
+-  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for pthread_join in -lpthread" >&5
+-$as_echo_n "checking for pthread_join in -lpthread... " >&6; }
+-if ${ac_cv_lib_pthread_pthread_join+:} false; then :
+-  $as_echo_n "(cached) " >&6
+-else
+-  ac_check_lib_save_LIBS=$LIBS
+-LIBS="-lpthread  $LIBS"
+-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+-/* end confdefs.h.  */
+-
+-/* Override any GCC internal prototype to avoid an error.
+-   Use char because int might match the return type of a GCC
+-   builtin and then its argument prototype would still apply.  */
+-#ifdef __cplusplus
+-extern "C"
+-#endif
+-char pthread_join ();
+-int
+-main ()
+-{
+-return pthread_join ();
+-  ;
+-  return 0;
+-}
+-_ACEOF
+-if ac_fn_c_try_link "$LINENO"; then :
+-  ac_cv_lib_pthread_pthread_join=yes
+-else
+-  ac_cv_lib_pthread_pthread_join=no
+-fi
+-rm -f core conftest.err conftest.$ac_objext \
+-    conftest$ac_exeext conftest.$ac_ext
+-LIBS=$ac_check_lib_save_LIBS
+-fi
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_pthread_pthread_join" >&5
+-$as_echo "$ac_cv_lib_pthread_pthread_join" >&6; }
+-if test "x$ac_cv_lib_pthread_pthread_join" = xyes; then :
+-
+-
+-$as_echo "#define HAVE_LIBPTHREAD /**/" >>confdefs.h
+-
+-
+-$as_echo "#define HAVE_PTHREAD_H /**/" >>confdefs.h
+-
+-       THREAD_LIBS="-lpthread"
+-fi
+-
+-fi
+-
+-
+   ;;
+ esac
+ 
+diff -r -u -w --strip-trailing-cr libxslt-1.1.28.original/configure.in libxslt-1.1.28/configure.in
+--- libxslt-1.1.28.original/configure.in	2016-05-09 16:10:36.418980500 +0200
++++ libxslt-1.1.28/configure.in	2016-05-09 16:10:36.053040700 +0200
+@@ -3,6 +3,7 @@
+ AC_INIT(libxslt/xslt.c)
+ AC_CONFIG_HEADERS(config.h)
+ AC_CANONICAL_HOST
++AC_LIBTOOL_WIN32_DLL
+ AC_USE_SYSTEM_EXTENSIONS
+ 
+ dnl
+@@ -146,11 +147,6 @@
+   *-mingw*) ;;
+   *)
+ THREAD_LIBS=""
+-AC_CHECK_HEADER(pthread.h,
+-    AC_CHECK_LIB(pthread, pthread_join,[
+-       AC_DEFINE([HAVE_LIBPTHREAD], [], [Define if pthread library is there (-lpthread)])
+-       AC_DEFINE([HAVE_PTHREAD_H], [], [Define if <pthread.h> is there])
+-       THREAD_LIBS="-lpthread"]))
+   ;;
+ esac
+ 
+@@ -626,11 +622,8 @@
+  WIN32_EXTRA_LDFLAGS="-no-undefined"
+  ;;
+  *-*-mingw*)
+- WIN32_EXTRA_LIBADD="-lwsock32"
++ WIN32_EXTRA_LIBADD="-lws2_32 -lmswsock"
+  WIN32_EXTRA_LDFLAGS="-no-undefined"
+- AC_DEFINE([_WINSOCKAPI_],1,[Using the Win32 Socket implementation])
+- AC_DEFINE([snprintf],[_snprintf],[Win32 Std C name mangling work-around])
+- AC_DEFINE([vsnprintf],[_vsnprintf],[Win32 Std C name mangling work-around])
+  ;;
+ esac
+ AC_SUBST(WIN32_EXTRA_LIBADD)
+diff -r -u -w --strip-trailing-cr libxslt-1.1.28.original/libexslt/Makefile.am libxslt-1.1.28/libexslt/Makefile.am
+--- libxslt-1.1.28.original/libexslt/Makefile.am	2016-05-09 16:10:39.928466100 +0200
++++ libxslt-1.1.28/libexslt/Makefile.am	2016-05-09 16:10:35.788498700 +0200
+@@ -27,7 +27,7 @@
+ 	dynamic.c
+ 
+ libexslt_la_LIBADD = $(top_builddir)/libxslt/libxslt.la $(EXTRA_LIBS) $(LIBGCRYPT_LIBS)
+-libexslt_la_LDFLAGS = $(WIN32_EXTRA_LDFLAGS) -version-info $(LIBEXSLT_VERSION_INFO)
++libexslt_la_LDFLAGS = $(WIN32_EXTRA_LDFLAGS) -version-info $(LIBEXSLT_VERSION_INFO) -no-undefined
+ 
+ man_MANS = libexslt.3
+ 
+diff -r -u -w --strip-trailing-cr libxslt-1.1.28.original/libxslt/Makefile.am libxslt-1.1.28/libxslt/Makefile.am
+--- libxslt-1.1.28.original/libxslt/Makefile.am	2016-05-09 16:10:40.457186500 +0200
++++ libxslt-1.1.28/libxslt/Makefile.am	2016-05-09 16:10:35.801810500 +0200
+@@ -64,7 +64,8 @@
+ libxslt_la_LDFLAGS =					\
+ 		$(WIN32_EXTRA_LDFLAGS)			\
+ 		$(LIBXSLT_VERSION_SCRIPT)		\
+-		-version-info $(LIBXSLT_VERSION_INFO)
++		-version-info $(LIBXSLT_VERSION_INFO) \
++		-no-undefined
+ 
+ man_MANS = libxslt.3
+ 
+diff -r -u -w --strip-trailing-cr libxslt-1.1.28.original/libxslt/security.c libxslt-1.1.28/libxslt/security.c
+--- libxslt-1.1.28.original/libxslt/security.c	2016-05-09 16:10:40.687793700 +0200
++++ libxslt-1.1.28/libxslt/security.c	2016-05-09 16:10:35.895585000 +0200
+@@ -342,8 +342,16 @@
+ 		}
+ 	    }
+ 	    ret = xsltCheckWritePath(sec, ctxt, directory);
+-	    if (ret == 1)
+-		ret = mkdir(directory, 0755);
++	    if (ret == 1) {
++ 		ret = mkdir(directory);
++		if (ret == -1 && errno == EEXIST) {
++		    struct stat buf;
++                    ret = stat(directory, &buf);
++                    if (ret == 0) {
++                        ret = S_ISDIR(buf.st_mode) ? 0 : -1;
++                    }
++		}
++	    }
+ 	}
+ 	xmlFree(directory);
+ 	if (ret < 0)
+diff -r -u -w --strip-trailing-cr libxslt-1.1.28.original/libxslt/win32config.h libxslt-1.1.28/libxslt/win32config.h
+--- libxslt-1.1.28.original/libxslt/win32config.h	2016-05-09 16:10:40.914201000 +0200
++++ libxslt-1.1.28/libxslt/win32config.h	2016-05-09 16:10:36.067527200 +0200
+@@ -79,10 +79,6 @@
+ #include <direct.h>
+ #if defined(_MSC_VER) || defined(__MINGW32__)
+ #define mkdir(p,m) _mkdir(p)
+-#define snprintf _snprintf
+-#if _MSC_VER < 1500
+-#define vsnprintf(b,c,f,a) _vsnprintf(b,c,f,a)
+-#endif
+ #endif
+ 
+ #define HAVE_SYS_STAT_H
+diff -r -u -w --strip-trailing-cr libxslt-1.1.28.original/libxslt/xsltlocale.h libxslt-1.1.28/libxslt/xsltlocale.h
+--- libxslt-1.1.28.original/libxslt/xsltlocale.h	2016-05-09 16:10:41.075446600 +0200
++++ libxslt-1.1.28/libxslt/xsltlocale.h	2016-05-09 16:10:35.973884300 +0200
+@@ -12,6 +12,7 @@
+ #define __XML_XSLTLOCALE_H__
+ 
+ #include <libxml/xmlstring.h>
++#include "xsltexports.h"
+ 
+ #ifdef XSLT_LOCALE_XLOCALE
+ 
+@@ -53,6 +54,6 @@
+ void xsltFreeLocale(xsltLocale locale);
+ xsltLocaleChar *xsltStrxfrm(xsltLocale locale, const xmlChar *string);
+ int xsltLocaleStrcmp(xsltLocale locale, const xsltLocaleChar *str1, const xsltLocaleChar *str2);
+-void xsltFreeLocales(void);
++XSLTPUBFUN void XSLTCALL xsltFreeLocales (void);
+ 
+ #endif /* __XML_XSLTLOCALE_H__ */
+diff -r -u -w --strip-trailing-cr libxslt-1.1.28.original/libxslt.m4 libxslt-1.1.28/libxslt.m4
+--- libxslt-1.1.28.original/libxslt.m4	2016-05-09 16:10:41.173850500 +0200
++++ libxslt-1.1.28/libxslt.m4	2016-05-09 16:10:35.848981300 +0200
+@@ -52,8 +52,10 @@
+            sed 's/\([[0-9]]*\).\([[0-9]]*\).\([[0-9]]*\)/\3/'`
+     if test "x$enable_xslttest" = "xyes" ; then
+       ac_save_CFLAGS="$CFLAGS"
++      ac_save_CXXFLAGS="$CXXFLAGS"
+       ac_save_LIBS="$LIBS"
+       CFLAGS="$CFLAGS $XSLT_CFLAGS"
++      CXXFLAGS="$CXXFLAGS $XSLT_CFLAGS"
+       LIBS="$XSLT_LIBS $LIBS"
+ dnl
+ dnl Now check if the installed libxslt is sufficiently new.
+@@ -138,6 +140,7 @@
+ }
+ ],, no_xslt=yes,[echo $ac_n "cross compiling; assumed OK... $ac_c"])
+        CFLAGS="$ac_save_CFLAGS"
++       CXXFLAGS="$ac_save_CXXFLAGS"
+        LIBS="$ac_save_LIBS"
+      fi
+   fi
+@@ -158,6 +161,7 @@
+        else
+           echo "*** Could not run libxslt test program, checking why..."
+           CFLAGS="$CFLAGS $XSLT_CFLAGS"
++          CXXFLAGS="$CXXFLAGS $XSLT_CFLAGS"
+           LIBS="$LIBS $XSLT_LIBS"
+           AC_TRY_LINK([
+ #include <libxslt/xslt.h>
+@@ -177,6 +181,7 @@
+           echo "*** or that you have moved LIBXSLT since it was installed. In the latter case, you"
+           echo "*** may want to edit the xslt-config script: $XSLT_CONFIG" ])
+           CFLAGS="$ac_save_CFLAGS"
++          CXXFLAGS="$ac_save_CXXFLAGS"
+           LIBS="$ac_save_LIBS"
+        fi
+      fi
+diff -r -u -w --strip-trailing-cr libxslt-1.1.28.original/python/libxslt.c libxslt-1.1.28/python/libxslt.c
+--- libxslt-1.1.28.original/python/libxslt.c	2016-05-09 16:10:41.449504200 +0200
++++ libxslt-1.1.28/python/libxslt.c	2016-05-09 16:10:36.084693100 +0200
+@@ -22,9 +22,7 @@
+ 
+ #include <stdio.h>
+ 
+-#if (defined(_MSC_VER) || defined(__MINGW32__)) && !defined(vsnprintf)
+-#define vsnprintf(b,c,f,a) _vsnprintf(b,c,f,a)
+-#elif defined(XSLT_NEED_TRIO)
++#if defined(XSLT_NEED_TRIO)
+ #include "trio.h"
+ #define vsnprintf trio_vsnprintf
+ #endif
+diff -r -u -w --strip-trailing-cr libxslt-1.1.28.original/python/libxslt_wrap.h libxslt-1.1.28/python/libxslt_wrap.h
+--- libxslt-1.1.28.original/python/libxslt_wrap.h	2016-05-09 16:10:41.470944600 +0200
++++ libxslt-1.1.28/python/libxslt_wrap.h	2016-05-09 16:10:35.926823900 +0200
+@@ -17,6 +17,7 @@
+ #include <libxslt/transform.h>
+ #include <libxslt/variables.h>
+ #include <libxslt/xsltconfig.h>
++#include <libxslt/xsltlocale.h>
+ 
+ #define Pystylesheet_Get(v) (((v) == Py_None) ? NULL : \
+         (((Pystylesheet_Object *)(v))->obj))
+diff -r -u -w --strip-trailing-cr libxslt-1.1.28.original/tests/plugins/Makefile.am libxslt-1.1.28/tests/plugins/Makefile.am
+--- libxslt-1.1.28.original/tests/plugins/Makefile.am	2016-05-09 16:11:13.331538900 +0200
++++ libxslt-1.1.28/tests/plugins/Makefile.am	2016-05-09 16:10:36.005036300 +0200
+@@ -21,7 +21,7 @@
+ xmlsoft_org_xslt_testplugin_la_CFLAGS = -DMODULE_COMPILE $(LIBXML_CFLAGS) $(LIBXSLT_CFLAGS)
+ xmlsoft_org_xslt_testplugin_la_SOURCES = testplugin.c
+ xmlsoft_org_xslt_testplugin_la_LIBADD = $(top_builddir)/libxslt/libxslt.la $(EXTRA_LIBS)
+-xmlsoft_org_xslt_testplugin_la_LDFLAGS = -module -avoid-version -rpath $(plugindir)
++xmlsoft_org_xslt_testplugin_la_LDFLAGS = -module -no-undefined -avoid-version -rpath $(plugindir)
+ 
+ test-logall:
+ 	@echo '## Running plugin tests'
+diff -r -u -w --strip-trailing-cr libxslt-1.1.28.original/xsltproc/xsltproc.c libxslt-1.1.28/xsltproc/xsltproc.c
+--- libxslt-1.1.28.original/xsltproc/xsltproc.c	2016-05-09 16:11:22.952065300 +0200
++++ libxslt-1.1.28/xsltproc/xsltproc.c	2016-05-09 16:10:36.100120700 +0200
+@@ -57,7 +57,6 @@
+ #if defined(_MSC_VER) || defined(__MINGW32__)
+ #include <winsock2.h>
+ #define gettimeofday(p1,p2)
+-#define snprintf _snprintf
+ #endif /* _MS_VER */
+ #else /* WIN32 */
+ #if defined(HAVE_SYS_TIME_H)

@@ -1,0 +1,4 @@
+Package: libgd-2.1.1
+Sources: https://bitbucket.org/libgd/gd-libgd/downloads/libgd-2.1.1.tar.gz
+Patch: libgd-2.1.1.diff
+Homepage: http://www.libgd.org/

@@ -1,0 +1,4 @@
+Package: zlib-1.2.8
+Sources: http://www.zlib.net/zlib-1.2.8.tar.gz
+Patch: zlib-1.2.8.diff
+Homepage: http://www.zlib.net/
