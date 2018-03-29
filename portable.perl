@@ -1,4 +1,21 @@
 ---
+CPAN:
+  build_dir: cpan/build
+  cpan_home: cpan
+  ftp: ''
+  histfile: cpan/histfile
+  keep_source_where: cpan/sources
+  make: c/bin/dmake.exe
+  make_install_make_command: c/bin/dmake.exe
+  makepl_arg: ''
+  patch: c/bin/patch.exe
+  prefs_dir: cpan/prefs
+minicpan:
+  local: minicpan
+  remote: http://cpan.strawberryperl.com/
+  force: 1
+  skip_perl: 1
+  no_conn_cache: 1
 HomeDir:
   my_home: data
   my_data: data
@@ -7,6 +24,7 @@ Config:
   archlibexp: perl/lib
   bin: perl/bin
   binexp: perl/bin
+  incpath: c/include
   installarchlib: perl/lib
   installbin: perl/bin
   installhtml1dir: ''
@@ -80,6 +98,8 @@ Config:
   sitescript: perl/site/bin
   sitescriptexp: perl/site/bin
   vendorscriptexp: perl/bin
+  usrinc: c/include
 Env:
   PATH:
+    - c/bin
     - perl/bin

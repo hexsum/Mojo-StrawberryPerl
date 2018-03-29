@@ -5,6 +5,12 @@ our $PRIORITY = 100;
 use POSIX ();
 sub do_speak_limit{
     my($client,$data,$speak_counter,$msg) = @_;
+
+    $data->{is_new_group_notice} //= 1;
+    $data->{is_new_group_member_notice} //= 1;
+    $data->{is_lose_group_member_notice} //= 1;
+    $data->{is_group_member_property_change_notice} //= 0;
+
     my $gid = $msg->group->id;
     my $sender_id = $msg->sender->id;
 
@@ -112,6 +118,7 @@ sub call {
             do_keyword_limit($client,$data,$keyword_counter,$msg)
         },
         new_group           => sub {
+            return if not $data->{is_new_group_notice};
             my $group = $_[1];
             return if ref $data->{ban_group}  eq "ARRAY" and first {$_=~/^\d+$/?$group->uid eq $_:$group->name eq $_} @{$data->{ban_group}};
             return if ref $data->{allow_group}  eq "ARRAY" and !first {$_=~/^\d+$/?$group->uid eq $_:$group->name eq $_} @{$data->{allow_group}};
@@ -120,6 +127,7 @@ sub call {
         },
         #lose_group         => sub { },
         new_group_member    => sub {
+            return if not $data->{is_new_group_member_notice};
             my $member = $_[1];
             my $group = $member->group;
             return if ref $data->{ban_group}  eq "ARRAY" and first {$_=~/^\d+$/?$group->uid eq $_:$group->name eq $_} @{$data->{ban_group}};
@@ -131,6 +139,7 @@ sub call {
             ); 
         },
         lose_group_member   => sub {
+            return if not $data->{is_lose_group_member_notice};
             my $member = $_[1];
             my $group = $member->group;
             return if ref $data->{ban_group}  eq "ARRAY" and first {$_=~/^\d+$/?$group->uid eq $_:$group->name eq $_} @{$data->{ban_group}};
@@ -146,6 +155,7 @@ sub call {
         #new_friend          => sub { },
         #lose_friend         => sub { },
         group_member_property_change => sub {
+            return if not $data->{is_group_member_property_change_notice};
             my($client,$member,$property,$old,$new)=@_;
             my $group = $member->group;
             return if ref $data->{ban_group}  eq "ARRAY" and first {$_=~/^\d+$/?$group->uid eq $_:$group->name eq $_} @{$data->{ban_group}};

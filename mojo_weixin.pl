@@ -9,7 +9,7 @@ $host = "0.0.0.0"; #发送消息接口监听地址
 $port = 3000;        #发送消息接口监听端口
 #$post_api = 'http://127.0.0.1/txpush.php';  #接收消息上报接口，如不需要可删除此行
 
-$tmpdir_dir = './';
+$tmpdir_dir = './tmp/';
 $qrcode_path = $tmpdir_dir.'weixin.png';
 
 if($log == '1'){
