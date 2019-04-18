@@ -28,8 +28,8 @@ use Mojo::Webqq::Model::Remote::_kick_group_member;
 use Mojo::Webqq::Model::Remote::_set_group_member_card;
 use Mojo::Webqq::Model::Remote::_shutup_group_member;
 use Mojo::Webqq::Model::Remote::_qiandao;
-
 use Encode ();
+
 sub time33 {
     use integer;
     my $self = shift;
@@ -633,6 +633,7 @@ sub update_group {
             $self->update_group_ext(%p);
         }
     };
+
     if($p{is_blocking}){
         my $group_list = $self->_get_group_list_info(); 
         $handle->($group_list);

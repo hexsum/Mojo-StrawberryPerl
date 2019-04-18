@@ -38,7 +38,7 @@ sub call{
             $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             if(defined $data->{post_api}){
                 my($data,$ua,$tx) = $client->http_post($data->{post_api},{ua_connect_timeout=>5,ua_request_timeout=>5,ua_inactivity_timeout=>5,ua_retry_times=>1},json=>$post_json);
-                if($tx->success){
+                if($tx->res->is_success){
                     $client->debug("插件[".__PACKAGE__ ."]事件[".$event . "](@args)上报成功");
                 }
                 else{
@@ -61,7 +61,7 @@ sub call{
             $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             if(defined $data->{post_api}){
                 my($data,$ua,$tx) = $client->http_post($data->{post_api},json=>$post_json);
-                if($tx->success){
+                if($tx->res->is_success){
                     $client->debug("插件[".__PACKAGE__ ."]事件[".$event . "]上报成功");
                 }
                 else{
@@ -83,7 +83,7 @@ sub call{
             $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             $client->http_post($data->{post_api},json=>$post_json,sub{
                 my($data,$ua,$tx) = @_;
-                if($tx->success){
+                if($tx->res->is_success){
                     $client->debug("插件[".__PACKAGE__ ."]事件[".$event."]上报成功");
                 }
                 else{
@@ -102,7 +102,7 @@ sub call{
             $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             $client->http_post($data->{post_api},json=>$post_json,sub{
                 my($data,$ua,$tx) = @_;
-                if($tx->success){
+                if($tx->res->is_success){
                     $client->debug("插件[".__PACKAGE__ ."]事件[".$event."]上报成功");
                 }
                 else{
@@ -121,7 +121,7 @@ sub call{
             $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             $client->http_post($data->{post_api},json=>$post_json,sub{
                 my($data,$ua,$tx) = @_;
-                if($tx->success){
+                if($tx->res->is_success){
                     $client->debug("插件[".__PACKAGE__ ."]事件[".$event."]上报成功");
                 }
                 else{
@@ -141,7 +141,7 @@ sub call{
         $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
         $client->http_post($data->{post_api},json=>$post_json,sub{
             my($data,$ua,$tx) = @_;
-            if($tx->success){
+            if($tx->res->is_success){
                 $client->debug("插件[".__PACKAGE__ ."]接收消息[".$msg->id."]上报成功");
                 if($tx->res->headers->content_type =~m#text/json|application/json#){
                     #文本类的返回结果必须是json字符串
@@ -183,7 +183,7 @@ sub call{
         $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
         $client->http_post($data->{post_api},json=>$post_json,sub{
             my($data,$ua,$tx) = @_;
-            if($tx->success){
+            if($tx->res->is_success){
                 $client->debug("插件[".__PACKAGE__ ."]发送消息[".$msg->id."]上报成功");
                 if($tx->res->headers->content_type =~m#text/json|application/json#){
                     #文本类的返回结果必须是json字符串
@@ -264,6 +264,13 @@ sub call{
         }
         else{return 1} 
     };
+    options '/*' => sub{
+        my $c = shift;
+        $c->res->headers->header("Access-Control-Allow-Origin" => "*");
+        $c->res->headers->header("Access-Control-Allow-Methods" => "OPTIONS, HEAD, GET, POST");
+        $c->res->headers->header("Access-Control-Allow-Headers" => "X-Requested-With, X-Auth-Token, Content-Type, Content-Length, Authorization");
+        $c->rendered(200);
+    };
     get '/openqq/get_user_info'     => sub {$_[0]->safe_render(json=>$client->user->to_json_hash());};
     get '/openqq/get_friend_info'   => sub {$_[0]->safe_render(json=>[map {$_->to_json_hash()} @{$client->friend}]); };
     get '/openqq/get_group_info'    => sub {$_[0]->safe_render(json=>[map {$_->to_json_hash()} @{$client->group}]); };
@@ -272,7 +279,7 @@ sub call{
     any [qw(GET POST)] => '/openqq/send_friend_message'         => sub{
         my $c = shift;
         my $p = $c->params;
-        my $friend = $client->search_friend(id=>$p->{id},uid=>$p->{uid});
+        my $friend = $client->search_friend(id=>$p->{id},uid=>$p->{uid},name=>$p->{name},displayname=>$p->{displayname});
         if(defined $friend){
             if($p->{async}){
                 $client->send_friend_message($friend,$p->{content},sub{$_[1]->from("api")});
@@ -304,7 +311,7 @@ sub call{
     any [qw(GET POST)] => 'openqq/send_group_message'    => sub{
         my $c = shift;
         my $p = $c->params;
-        my $group = $client->search_group(id=>$p->{id},uid=>$p->{uid},);
+        my $group = $client->search_group(id=>$p->{id},uid=>$p->{uid},name=>$p->{name},displayname=>$p->{displayname});
         if(defined $group){
             if($p->{async}){
                 $client->send_group_message($group,$p->{content},sub{$_[1]->from("api")});
@@ -460,7 +467,7 @@ sub call{
                 }
                 push @members,$member;
             }
-            if($group->shutup_group_member($p->{time},@members)){
+            if($group->shutup_group_member($p->{time} * 60 ,@members)){
                 $c->safe_render(json=>{code=>0,status=>"success"});
             }
             else{
@@ -516,7 +523,7 @@ sub call{
         });
         $client->timer(3=>sub{$client->stop()});#3秒后再执行，让客户端可以收到该api的响应
     };
-    any '/*whatever'  => sub{whatever=>'',$_[0]->safe_render(text=>"request error",status=>403)};
+    any '/*'  => sub{$_[0]->safe_render(text=>"api not found",status=>403)};
     package Mojo::Webqq::Plugin::Openqq;
     $server = Mojo::Webqq::Server->new();   
     $server->app($server->build_app("Mojo::Webqq::Plugin::Openqq::App"));

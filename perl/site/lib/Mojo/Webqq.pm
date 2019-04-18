@@ -1,7 +1,7 @@
 package Mojo::Webqq;
 use strict;
 use Carp ();
-$Mojo::Webqq::VERSION = "2.1.8";
+$Mojo::Webqq::VERSION = "2.2.7";
 use Mojo::Webqq::Base 'Mojo::EventEmitter';
 use Mojo::Webqq::Log;
 use Mojo::Webqq::Cache;
@@ -9,6 +9,7 @@ use Time::HiRes qw(gettimeofday);
 use File::Spec ();
 use base qw(Mojo::Webqq::Model Mojo::Webqq::Client Mojo::Webqq::Plugin Mojo::Webqq::Request Mojo::Webqq::Util Mojo::Webqq::Model::Ext);
 
+has domain              => 'w.qq.com';
 has account             => sub{ $ENV{MOJO_WEBQQ_ACCOUNT} || 'default'};
 has start_time          => time;
 has pwd                 => undef;
@@ -20,6 +21,10 @@ has http_debug          => sub{$ENV{MOJO_WEBQQ_HTTP_DEBUG} || 0 };
 has ua_debug            => sub{$_[0]->http_debug};
 has ua_debug_req_body   => sub{$_[0]->ua_debug};
 has ua_debug_res_body   => sub{$_[0]->ua_debug};
+has ua_connect_timeout      => 10;
+has ua_request_timeout      => 120;
+has ua_inactivity_timeout   => 120;
+has model_update_timeout    => 15;#sub{$_[0]->ua_request_timeout};
 has log_level           => 'info';     #debug|info|msg|warn|error|fatal
 has log_path            => undef;
 has log_encoding        => undef;      #utf8|gbk|...
@@ -145,8 +150,9 @@ has ua                      => sub {
     Mojo::UserAgent->new(
         proxy              => sub{ my $proxy = Mojo::UserAgent::Proxy->new;$proxy->detect;$proxy}->(),
         max_redirects      => 7,
-        request_timeout    => 120,
-        inactivity_timeout => 120,
+        connect_timeout    => $self->ua_connect_timeout,
+        request_timeout    => $self->ua_request_timeout,
+        inactivity_timeout => $self->ua_inactivity_timeout,
         transactor => $transactor,
     );
 };
@@ -299,7 +305,8 @@ sub new {
     });
     $self->on(model_update_fail=>sub{
         my $self = shift;
-        $self->relogin() if $self->login_type eq 'login';
+        $self->info("检测到登录状态失效(1)，尝试重新登录");
+        $self->relogin();
     });
     $self->on(before_send_message=>sub{
         my($self,$msg) = @_;

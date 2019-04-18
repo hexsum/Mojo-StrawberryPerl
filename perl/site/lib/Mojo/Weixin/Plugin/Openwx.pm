@@ -20,6 +20,7 @@ sub call{
 
     if(defined $data->{poll_api}){
         $client->on('_mojo_weixin_plugin_openwx_poll_over' => sub{
+            $client->debug("发起poll_api[$data->{poll_api}]心跳请求...");
             $client->http_get($data->{poll_api},sub{
                 $client->timer($data->{poll_interval} || 5,sub {$client->emit('_mojo_weixin_plugin_openwx_poll_over');});
             });
@@ -38,7 +39,7 @@ sub call{
             $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             if(defined $data->{post_api}){
                 my($data,$ua,$tx) = $client->http_post($data->{post_api},{ua_connect_timeout=>5,ua_request_timeout=>5,ua_inactivity_timeout=>5,ua_retry_times=>1},json=>$post_json);
-                if($tx->success){
+                if($tx->res->is_success){
                     $client->debug("插件[".__PACKAGE__ ."]事件[".$event . "](@args)上报成功");
                 }
                 else{
@@ -61,7 +62,7 @@ sub call{
             $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             if(defined $data->{post_api}){
                 my($data,$ua,$tx) = $client->http_post($data->{post_api},json=>$post_json);
-                if($tx->success){
+                if($tx->res->is_success){
                     $client->debug("插件[".__PACKAGE__ ."]事件[".$event . "]上报成功");
                 }
                 else{
@@ -83,7 +84,7 @@ sub call{
             $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             $client->http_post($data->{post_api},json=>$post_json,sub{
                 my($data,$ua,$tx) = @_;
-                if($tx->success){
+                if($tx->res->is_success){
                     $client->debug("插件[".__PACKAGE__ ."]事件[".$event."]上报成功");
                 }
                 else{
@@ -102,7 +103,7 @@ sub call{
             $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             $client->http_post($data->{post_api},json=>$post_json,sub{
                 my($data,$ua,$tx) = @_;
-                if($tx->success){
+                if($tx->res->is_success){
                     $client->debug("插件[".__PACKAGE__ ."]事件[".$event."]上报成功");
                 }
                 else{
@@ -122,7 +123,7 @@ sub call{
             $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             $client->http_post($data->{post_api},json=>$post_json,sub{
                 my($data,$ua,$tx) = @_;
-                if($tx->success){
+                if($tx->res->is_success){
                     $client->debug("插件[".__PACKAGE__ ."]事件[".$event."]上报成功");
                 }
                 else{
@@ -140,7 +141,7 @@ sub call{
             $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
             $client->http_post($data->{post_api},json=>$post_json,sub{
                 my($data,$ua,$tx) = @_;
-                if($tx->success){
+                if($tx->res->is_success){
                     $client->debug("插件[".__PACKAGE__ ."]事件[".$event."]上报成功");
                 }
                 else{
@@ -155,17 +156,24 @@ sub call{
         my $post_json = $msg->to_json_hash;
         delete $post_json->{media_data} if ($post_json->{format} eq "media" and ! $data->{post_media_data});
         $post_json->{post_type} = "receive_message";
+
+        if(defined $data->{post_message_filter} and ref $data->{post_message_filter} eq 'HASH'){
+            for my $key (keys %{$data->{post_message_filter}}){
+                return if exists $post_json->{$key} and $post_json->{$key} ne $data->{post_message_filter}{$key};
+            }
+        }
+
         $check_event_list->append($post_json);
         $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
         $client->http_post($data->{post_api},json=>$post_json,sub{
             my($data,$ua,$tx) = @_;
-            if($tx->success){
+            if($tx->res->is_success){
                 $client->debug( $tx->res->body );
-                if($tx->res->headers->content_type =~m#text/json|application/json#){
+                if($tx->res->headers->content_type =~m#(text|application)/json#){
                     #文本类的返回结果必须是json字符串
                     my $json;
                     eval{$json = $client->decode_json($tx->res->body);$client->reform($json)};
-                    if($@){$client->warn($@);return}
+                    if($@){$client->warn("post_api返回的json内容无法正常解析: " . $@);return}
                     if(defined $json){
                         #暂时先不启用format的属性
                         #{code=>0,reply=>"回复的消息",format=>"text"}
@@ -192,11 +200,18 @@ sub call{
         my $post_json = $msg->to_json_hash;
         delete $post_json->{media_data} if ($post_json->{format} eq "media" and ! $data->{post_media_data});
         $post_json->{post_type} = "send_message";
+
+        if(defined $data->{post_message_filter} and ref $data->{post_message_filter} eq 'HASH'){
+            for my $key (keys %{$data->{post_message_filter}}){
+                return if exists $post_json->{$key} and $post_json->{$key} ne $data->{post_message_filter}{$key};
+            }
+        }
+
         $check_event_list->append($post_json);
         $client->stdout_line($client->to_json($post_json)) if $data->{post_stdout};
         $client->http_post($data->{post_api},json=>$post_json,sub{
             my($data,$ua,$tx) = @_;
-            if($tx->success){
+            if($tx->res->is_success){
                 $client->debug("插件[".__PACKAGE__ ."]发送消息[".$msg->id."]上报成功");
                 if($tx->res->headers->content_type =~m#text/json|application/json#){
                     #文本类的返回结果必须是json字符串
@@ -277,6 +292,13 @@ sub call{
             return $ret;
         }
         else{return 1} 
+    };
+    options '/*' => sub{
+        my $c = shift;
+        $c->res->headers->header("Access-Control-Allow-Origin" => "*");
+        $c->res->headers->header("Access-Control-Allow-Methods" => "OPTIONS, HEAD, GET, POST");
+        $c->res->headers->header("Access-Control-Allow-Headers" => "X-Requested-With, X-Auth-Token, Content-Type, Content-Length, Authorization");
+        $c->rendered(200);
     };
     get '/openwx/get_user_info'     => sub {$_[0]->safe_render(json=>$client->user->to_json_hash());};
     get '/openwx/get_friend_info'   => sub {$_[0]->safe_render(json=>[map {$_->to_json_hash()} @{$client->friend}]); };
@@ -452,10 +474,13 @@ sub call{
                         $client->unsubscribe(receive_message=>$cb);
                         $c->safe_render(json=>{id=>$msg->id,code=>$msg->code,status=>$msg->info,reply_status=>"reply timeout",reply=>undef});
                     });
-                    $cb = $client->once(receive_message=>sub{
+                    $cb = $client->on(receive_message=>sub{
                         my($client,$msg) = @_;
                         Mojo::IOLoop->remove($timer);
-                        $c->safe_render(json=>{reply=>$msg->content,id=>$msg->id,code=>$msg->code,status=>$msg->info}); 
+                        if($msg->sender->id eq $object->id){
+                            $client->unsubscribe(receive_message=>$cb);
+                            $c->safe_render(json=>{reply=>$msg->content,id=>$msg->id,code=>$msg->code,status=>$msg->info});
+                        }
                     });
                 });
                 $msg->from("api");
@@ -742,7 +767,7 @@ sub call{
         );
         
     };
-    any '/*whatever'  => sub{whatever=>'',$_[0]->safe_render(text=>"api not found",status=>403)};
+    any '/*'  => sub{$_[0]->safe_render(text=>"api not found",status=>403)};
     package Mojo::Weixin::Plugin::Openwx;
     no utf8;
     $server = Mojo::Weixin::Server->new();   
